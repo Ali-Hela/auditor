@@ -21,6 +21,21 @@ colorize_output() {
     done
 }
 
+    # Check for cPanel installation
+    if [ ! -d "/usr/local/cpanel" ]; then
+        echo "This tool was designed for cPanel servers, and will check for configs specific to such servers."
+        read -p "cPanel does not appear to be installed. Do you still want to run auditor? (y/N): " confirm
+        case "$confirm" in
+            [yY][eE][sS]|[yY])
+                echo "Continuing without cPanel..."
+                ;;
+            *)
+                echo "Exiting auditor."
+                exit 1
+                ;;
+        esac
+    fi
+
 echo "Auditor started at $(date)" > "$LOG_FILE"
 echo "Running checkpoints in $CHECKPOINTS_DIR..."
 
