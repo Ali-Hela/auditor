@@ -1,0 +1,35 @@
+#!/bin/bash
+
+CHECKPOINTS_DIR="$(dirname "$0")/checkpoints"
+LOG_FILE="$(dirname "$0")/auditor.log"
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+colorize_output() {
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^✔ ]]; then
+            echo -e "${GREEN}${line}${NC}"
+        elif [[ "$line" =~ ^✘ ]]; then
+            echo -e "${RED}${line}${NC}"
+        elif [[ "$line" =~ ^[Ee]rror|command\ not\ found ]]; then
+            echo -e "${RED}${line}${NC}"
+        else
+            echo "$line"
+        fi
+    done
+}
+
+echo "Auditor started at $(date)" > "$LOG_FILE"
+echo "Running checkpoints in $CHECKPOINTS_DIR..."
+
+for checkpoint in "$CHECKPOINTS_DIR"/*.sh; do
+    [ -x "$checkpoint" ] || chmod +x "$checkpoint"
+    # Capture both stdout and stderr, colorize, and log
+    result="$("$checkpoint" 2>&1)"
+    echo "$result" | colorize_output
+    echo "$result" >> "$LOG_FILE"
+done
+
+echo "Auditor finished at $(date)" >> "$LOG_FILE"
