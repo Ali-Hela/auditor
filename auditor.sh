@@ -5,6 +5,8 @@ LOG_FILE="$(dirname "$0")/auditor.log"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 colorize_output() {
@@ -13,6 +15,10 @@ colorize_output() {
             echo -e "${GREEN}${line}${NC}"
         elif [[ "$line" =~ ^✘ ]]; then
             echo -e "${RED}${line}${NC}"
+        elif [[ "$line" =~ ^▲ ]]; then
+            echo -e "${YELLOW}${line}${NC}"
+        elif [[ "$line" =~ ^🛈 ]]; then
+            echo -e "${BLUE}${line}${NC}"
         elif [[ "$line" =~ ^[Ee]rror|command\ not\ found ]]; then
             echo -e "${RED}${line}${NC}"
         else
