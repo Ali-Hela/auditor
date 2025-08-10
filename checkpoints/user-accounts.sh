@@ -10,8 +10,8 @@ if getent group sudo > /dev/null; then
     fi
 elif getent group wheel > /dev/null; then
     wheel_users=$(getent group wheel | cut -d: -f4)
-    echo "🛈 Users with wheel privileges:"
     if [ -n "$wheel_users" ]; then
+        echo "🛈 Users with wheel privileges:"
         echo "$wheel_users"
     else
         echo "🛈 No users in wheel group."
