@@ -32,7 +32,7 @@ colorize_output() {
         elif [[ "$line" =~ ^[Ee]rror|command\ not\ found ]]; then
             echo -e "${BOLD}${RED}${line}${NC}${RESET_BOLD}"
         else
-            echo -e "${BOLD}${line}${RESET_BOLD}"
+            echo "$line"
         fi
     done
 }
