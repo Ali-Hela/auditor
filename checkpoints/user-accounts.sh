@@ -14,7 +14,7 @@ elif getent group wheel > /dev/null; then
     if [ -n "$wheel_users" ]; then
         echo "$wheel_users"
     else
-        echo "▲ No users in wheel group."
+        echo "🛈 No users in wheel group."
     fi
 else
     echo "▲ No sudo or wheel group found."
