@@ -8,21 +8,31 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+BOLD='\033[1m'
+RESET_BOLD='\033[22m'
 
 colorize_output() {
     while IFS= read -r line; do
         if [[ "$line" =~ ^✔ ]]; then
-            echo -e "${GREEN}${line}${NC}"
+            symbol="${line:0:1}"
+            message="${line:1}"
+            echo -e "${GREEN}${symbol}${BOLD}${message}${RESET_BOLD}${NC}"
         elif [[ "$line" =~ ^✘ ]]; then
-            echo -e "${RED}${line}${NC}"
+            symbol="${line:0:1}"
+            message="${line:1}"
+            echo -e "${RED}${symbol}${BOLD}${message}${RESET_BOLD}${NC}"
         elif [[ "$line" =~ ^▲ ]]; then
-            echo -e "${YELLOW}${line}${NC}"
+            symbol="${line:0:1}"
+            message="${line:1}"
+            echo -e "${YELLOW}${symbol}${BOLD}${message}${RESET_BOLD}${NC}"
         elif [[ "$line" =~ ^🛈 ]]; then
-            echo -e "${BLUE}${line}${NC}"
+            symbol="${line:0:1}"
+            message="${line:1}"
+            echo -e "${BLUE}${symbol}${BOLD}${message}${RESET_BOLD}${NC}"
         elif [[ "$line" =~ ^[Ee]rror|command\ not\ found ]]; then
-            echo -e "${RED}${line}${NC}"
+            echo -e "${BOLD}${RED}${line}${NC}${RESET_BOLD}"
         else
-            echo "$line"
+            echo -e "${BOLD}${line}${RESET_BOLD}"
         fi
     done
 }

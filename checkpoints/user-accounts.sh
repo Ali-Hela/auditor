@@ -7,5 +7,5 @@ elif getent group wheel > /dev/null; then
     echo "🛈 Users with wheel privileges:"
     getent group wheel | cut -d: -f4
 else
-    echo "No sudo or wheel group found."
+    echo "🛈 No sudo or wheel group found."
 fi
