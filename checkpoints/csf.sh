@@ -12,5 +12,3 @@ else
         ok "CSF is installed."
     fi
 fi
-    fi
-fi

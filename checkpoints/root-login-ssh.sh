@@ -6,4 +6,3 @@ if grep -q '^PermitRootLogin no' /etc/ssh/sshd_config; then
 else
     warn "Root login is enabled!"
 fi
-fi
