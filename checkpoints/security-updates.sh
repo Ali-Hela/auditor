@@ -1,13 +1,18 @@
 #!/bin/bash
+. "$(dirname "$0")/../functions.sh"
 # Check for pending security updates
+
+CHECK="✔"
+CROSS="✘"
+WARN="▲"
 
 if command -v yum &> /dev/null; then
     updates=$(yum check-update --security -q | grep -E '^[a-zA-Z0-9_.-]+\s+[0-9]')
     if [ -n "$updates" ]; then
-        echo "▲ Security updates are available! $(echo "$updates" | wc -l) updates found."
+        warn "Security updates are available! $(echo "$updates" | wc -l) updates found."
     else
-        echo "✔ No pending security updates."
+        ok "No pending security updates."
     fi
 else
-    echo "▲ Security Updates: Unsupported package manager."
+    warn "Security Updates: Unsupported package manager."
 fi
