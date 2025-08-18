@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Require root privileges
+if [ "$EUID" -ne 0 ]; then
+    echo "This script must be run as root. Please run with sudo or as root user."
+    exit 1
+fi
+
 CHECKPOINTS_DIR="$(dirname "$0")/checkpoints"
 LOG_FILE="$(dirname "$0")/auditor.log"
 
