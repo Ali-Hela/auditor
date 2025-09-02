@@ -1,9 +1,13 @@
 #!/bin/bash
 . "$(dirname "$0")/../functions.sh"
+
+# Parse --prompts flag
+parse_prompts_flag "$@"
+
 # List users with sudo privileges
 if getent group sudo > /dev/null; then
     sudo_users=$(getent group sudo | cut -d: -f4)
-    echo "Users with sudo privileges:"
+    info "Users with sudo privileges:"
     if [ -n "$sudo_users" ]; then
         echo "$sudo_users"
     else

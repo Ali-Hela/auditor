@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Parse arguments
+PROMPTS=0
+for arg in "$@"; do
+    case $arg in
+        -p|--prompts)
+            PROMPTS=1
+            ;;
+    esac
+done
+
 # Require root privileges
 if [ "$EUID" -ne 0 ]; then
     echo "This script must be run as root. Please run with sudo or as root user."
@@ -63,8 +73,12 @@ echo "Running checkpoints in $CHECKPOINTS_DIR..."
 
 for checkpoint in "$CHECKPOINTS_DIR"/*.sh; do
     [ -x "$checkpoint" ] || chmod +x "$checkpoint"
-    # Capture both stdout and stderr, colorize, and log
-    result="$("$checkpoint" 2>&1)"
+    # Pass --prompts if enabled
+    if [ "$PROMPTS" -eq 1 ]; then
+        result="$("$checkpoint" --prompts 2>&1)"
+    else
+        result="$("$checkpoint" 2>&1)"
+    fi
     echo "$result" | colorize_output
     echo "$result" >> "$LOG_FILE"
 done
