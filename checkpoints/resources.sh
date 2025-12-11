@@ -85,31 +85,7 @@ else
 fi
 
 # Check for large files in /tmp
-large_tmp_files=$(find /tmp -type f -size +100M 2>/dev/null | wc -l)
+large_tmp_files=$(find /tmp -type f -size +500M 2>/dev/null | wc -l)
 if [ "$large_tmp_files" -gt 0 ]; then
-    warn "Found $large_tmp_files large files (>100MB) in /tmp"
-else
-    ok "No unusually large files in /tmp"
-fi
-
-# Check largest directories in /home
-info "Top 5 largest user directories:"
-du -sh /home/* 2>/dev/null | sort -rh | head -5 | while read size dir; do
-    echo "  $size - $(basename $dir)"
-done
-
-# Check for suspended accounts
-if [ -d "/var/cpanel" ]; then
-    suspended_count=$(ls -la /var/cpanel/suspended/ 2>/dev/null | grep -c "^-")
-    if [ "$suspended_count" -gt 0 ]; then
-        info "Suspended cPanel accounts: $suspended_count"
-    fi
-fi
-
-# Check database sizes
-if command -v mysql &> /dev/null; then
-    db_size=$(mysql -e "SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS 'Size (MB)' FROM information_schema.TABLES;" 2>/dev/null | tail -1)
-    if [ -n "$db_size" ]; then
-        info "Total database size: ${db_size} MB"
-    fi
+    warn "Found $large_tmp_files very large files (>500MB) in /tmp"
 fi

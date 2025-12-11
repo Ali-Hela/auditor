@@ -69,35 +69,6 @@ if [ -f /etc/pure-ftpd/pure-ftpd.conf ]; then
     if grep -q "^ChrootEveryone.*yes" /etc/pure-ftpd/pure-ftpd.conf; then
         ok "FTP users are chrooted (jailed to home directory)"
     else
-        warn "FTP chroot may not be enforced - users could browse outside home"
+        warn "FTP chroot should be enforced"
     fi
-fi
-
-# Check FTP connection limits
-if [ -f /etc/pure-ftpd/pure-ftpd.conf ]; then
-    max_clients=$(grep "^MaxClientsNumber" /etc/pure-ftpd/pure-ftpd.conf 2>/dev/null | awk '{print $2}')
-    if [ -n "$max_clients" ]; then
-        info "FTP max clients: $max_clients"
-    fi
-    
-    max_per_ip=$(grep "^MaxClientsPerIP" /etc/pure-ftpd/pure-ftpd.conf 2>/dev/null | awk '{print $2}')
-    if [ -n "$max_per_ip" ]; then
-        info "FTP max clients per IP: $max_per_ip"
-    fi
-fi
-
-# Recommend using SFTP instead
-info "Consider using SFTP (SSH File Transfer) instead of FTP for better security"
-
-# Check for FTP brute force attempts in logs
-if [ -f /var/log/messages ]; then
-    recent_ftp_failures=$(grep -i "authentication failure" /var/log/messages 2>/dev/null | grep -i "ftp" | tail -10 | wc -l)
-    if [ "$recent_ftp_failures" -gt 5 ]; then
-        warn "Detected multiple FTP authentication failures - possible brute force"
-    fi
-fi
-
-# Check if FTP is listening on public interface
-if netstat -tuln 2>/dev/null | grep ":21 " | grep -q "0.0.0.0:21" || ss -tuln 2>/dev/null | grep ":21 " | grep -q "0.0.0.0:21"; then
-    info "FTP is listening on all interfaces (port 21)"
 fi

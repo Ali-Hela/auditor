@@ -29,64 +29,48 @@ else
     exit 0
 fi
 
-# Find php.ini files
-php_ini_files=$(find /etc /opt/cpanel /usr/local -name "php.ini" 2>/dev/null | head -10)
+# Find main php.ini file
+php_ini=""
+if php -i 2>/dev/null | grep -q "Loaded Configuration File"; then
+    php_ini=$(php -i 2>/dev/null | grep "Loaded Configuration File" | cut -d'>' -f2 | xargs)
+fi
 
-if [ -z "$php_ini_files" ]; then
-    warn "Could not locate php.ini files"
+if [ -z "$php_ini" ] || [ ! -f "$php_ini" ]; then
+    warn "Could not locate main php.ini file"
     exit 0
 fi
 
 # Check dangerous PHP functions
-for php_ini in $php_ini_files; do
-    if [ -f "$php_ini" ]; then
-        # Check disable_functions
-        if grep -q "^disable_functions" "$php_ini"; then
-            disabled=$(grep "^disable_functions" "$php_ini" | head -1)
-            if echo "$disabled" | grep -qE "(exec|passthru|shell_exec|system|proc_open|popen)"; then
-                ok "Dangerous PHP functions are disabled in $(basename $(dirname $php_ini))"
-            else
-                warn "Some dangerous PHP functions may not be disabled in $php_ini"
-            fi
-        else
-            warn "disable_functions not set in $php_ini"
-        fi
-        
-        # Check allow_url_fopen
-        if grep "^allow_url_fopen" "$php_ini" | grep -q "Off"; then
-            ok "allow_url_fopen is Off in $(basename $(dirname $php_ini))"
-        else
-            warn "allow_url_fopen should be Off in $php_ini"
-        fi
-        
-        # Check allow_url_include
-        if grep "^allow_url_include" "$php_ini" | grep -q "Off"; then
-            ok "allow_url_include is Off in $(basename $(dirname $php_ini))"
-        else
-            error "allow_url_include should be Off in $php_ini - critical security risk"
-        fi
-        
-        # Check expose_php
-        if grep "^expose_php" "$php_ini" | grep -q "Off"; then
-            ok "expose_php is Off in $(basename $(dirname $php_ini))"
-        else
-            warn "expose_php should be Off in $php_ini"
-        fi
-        
-        # Check display_errors for production
-        if grep "^display_errors" "$php_ini" | grep -q "Off"; then
-            ok "display_errors is Off in $(basename $(dirname $php_ini))"
-        else
-            warn "display_errors should be Off in production in $php_ini"
-        fi
+if grep -q "^disable_functions" "$php_ini"; then
+    disabled=$(grep "^disable_functions" "$php_ini" | head -1)
+    if echo "$disabled" | grep -qE "(exec|passthru|shell_exec|system|proc_open|popen)"; then
+        ok "Dangerous PHP functions are disabled"
+    else
+        warn "Dangerous PHP functions (exec, shell_exec, system, etc.) should be disabled"
     fi
-done | head -30  # Limit output if many php.ini files
-
-# Check for common PHP shells or malware patterns
-info "Scanning for potential PHP malware in /home (sample check)..."
-malware_count=$(find /home -name "*.php" -type f -exec grep -l "eval(base64_decode" {} \; 2>/dev/null | wc -l)
-if [ "$malware_count" -gt 0 ]; then
-    error "Found $malware_count PHP files with suspicious base64 patterns - investigate for malware"
 else
-    ok "No obvious PHP malware patterns detected in quick scan"
+    warn "disable_functions not set in php.ini"
+fi
+
+# Check allow_url_include (critical security risk)
+if grep "^allow_url_include" "$php_ini" | grep -q "Off"; then
+    ok "allow_url_include is Off"
+else
+    error "allow_url_include should be Off - critical security risk"
+fi
+
+# Check expose_php
+if grep "^expose_php" "$php_ini" | grep -q "Off"; then
+    ok "expose_php is Off"
+fi
+
+# Check display_errors for production
+if grep "^display_errors" "$php_ini" | grep -q "Off"; then
+    ok "display_errors is Off (production setting)"
+fi
+
+# Quick malware pattern check
+malware_count=$(find /home -name "*.php" -type f -exec grep -l "eval(base64_decode\|eval(gzinflate\|preg_replace.*\/e" {} \; 2>/dev/null | wc -l)
+if [ "$malware_count" -gt 0 ]; then
+    error "Found $malware_count PHP files with suspicious patterns - investigate for malware"
 fi

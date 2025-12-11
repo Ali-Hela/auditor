@@ -45,29 +45,4 @@ fi
 # Check if mod_security is enabled
 if $apache_cmd -M 2>/dev/null | grep -q "security2_module"; then
     ok "ModSecurity is enabled"
-else
-    warn "ModSecurity is NOT enabled - Consider installing for WAF protection"
-fi
-
-# Check if SymLinks are disabled in main config
-if grep -r "Options -Indexes" /etc/httpd/conf* /etc/apache2/conf* 2>/dev/null | grep -v "^#" | grep -q "Options"; then
-    ok "Directory indexing is disabled"
-else
-    warn "Directory indexing may be enabled - security risk"
-fi
-
-# Check TraceEnable
-if grep -r "TraceEnable off" /etc/httpd/conf* /etc/apache2/conf* 2>/dev/null | grep -v "^#" | grep -q "TraceEnable"; then
-    ok "TraceEnable is off (secure)"
-else
-    warn "TraceEnable should be disabled to prevent XST attacks"
-fi
-
-# Check Apache error log size
-if [ -f /var/log/httpd/error_log ]; then
-    error_log_size=$(du -h /var/log/httpd/error_log 2>/dev/null | cut -f1)
-    info "Apache error log size: $error_log_size"
-elif [ -f /var/log/apache2/error.log ]; then
-    error_log_size=$(du -h /var/log/apache2/error.log 2>/dev/null | cut -f1)
-    info "Apache error log size: $error_log_size"
 fi

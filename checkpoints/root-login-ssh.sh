@@ -29,14 +29,6 @@ else
     fi
 fi
 
-# Check SSH port
-ssh_port=$(grep "^Port " /etc/ssh/sshd_config | awk '{print $2}')
-if [ -n "$ssh_port" ] && [ "$ssh_port" != "22" ]; then
-    ok "SSH is running on non-standard port: $ssh_port"
-else
-    warn "SSH is on default port 22 - consider changing for security through obscurity"
-fi
-
 # Check password authentication
 if grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config; then
     ok "SSH password authentication is disabled (key-only)"

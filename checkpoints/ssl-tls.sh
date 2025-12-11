@@ -70,32 +70,6 @@ else
 fi
 
 # Check SSL/TLS protocols in Apache
-if grep -r "SSLProtocol" /etc/httpd/conf* /etc/apache2/conf* 2>/dev/null | grep -v "^#" | grep -q "SSLProtocol"; then
-    # Check if TLS 1.2+ is enforced
-    if grep -r "SSLProtocol" /etc/httpd/conf* /etc/apache2/conf* 2>/dev/null | grep -v "^#" | grep -E "TLSv1\.[23]"; then
-        ok "Modern TLS protocols (1.2+) are configured"
-    else
-        warn "TLS configuration should disable SSLv3, TLSv1.0, TLSv1.1"
-    fi
-fi
-
-# Check SSL cipher suites
-if grep -r "SSLCipherSuite" /etc/httpd/conf* /etc/apache2/conf* 2>/dev/null | grep -v "^#" | grep -q "SSLCipherSuite"; then
-    ok "SSL cipher suite is configured"
-else
-    warn "Consider configuring strong SSL cipher suites"
-fi
-
-# Check for mixed content issues (HTTP + HTTPS)
-if [ -f /etc/apache2/sites-enabled/000-default.conf ] || [ -f /etc/httpd/conf/httpd.conf ]; then
-    http_vhosts=$(grep -r "VirtualHost.*:80" /etc/httpd/conf* /etc/apache2/sites-* 2>/dev/null | wc -l)
-    https_vhosts=$(grep -r "VirtualHost.*:443" /etc/httpd/conf* /etc/apache2/sites-* 2>/dev/null | wc -l)
-    info "HTTP VirtualHosts: $http_vhosts, HTTPS VirtualHosts: $https_vhosts"
-fi
-
-# Check if HSTS is configured
-if grep -r "Strict-Transport-Security" /etc/httpd/conf* /etc/apache2/conf* 2>/dev/null | grep -v "^#" | grep -q "Strict-Transport-Security"; then
-    ok "HSTS (HTTP Strict Transport Security) is configured"
-else
-    warn "HSTS not configured - consider adding for enhanced security"
+if grep -r "SSLProtocol" /etc/httpd/conf* /etc/apache2/conf* 2>/dev/null | grep -v "^#" | grep -E "TLSv1\.[23]"; then
+    ok "Modern TLS protocols (1.2+) are configured"
 fi

@@ -22,66 +22,33 @@ fi
 
 info "Found $wp_count WordPress installations"
 
-# Check WordPress installations for security issues
-find /home -name wp-config.php 2>/dev/null | head -20 | while read wp_config; do
+# Check WordPress installations
+info "Scanning for WordPress installations..."
+wp_count=$(find /home -name wp-config.php 2>/dev/null | wc -l)
+
+if [ "$wp_count" -eq 0 ]; then
+    exit 0
+fi
+
+info "Found $wp_count WordPress installations"
+
+# Check for critical security issues only
+critical_issues=0
+
+find /home -name wp-config.php 2>/dev/null | head -10 | while read wp_config; do
     wp_dir=$(dirname "$wp_config")
-    wp_user=$(stat -c %U "$wp_dir" 2>/dev/null)
     
-    # Check wp-config.php permissions
+    # Check wp-config.php permissions (critical)
     config_perms=$(stat -c %a "$wp_config" 2>/dev/null)
-    if [ "$config_perms" = "600" ] || [ "$config_perms" = "640" ]; then
-        ok "wp-config.php has secure permissions ($config_perms) for $wp_user"
-    else
+    if [ "$config_perms" != "600" ] && [ "$config_perms" != "640" ] && [ "$config_perms" != "400" ]; then
         warn "wp-config.php has insecure permissions ($config_perms) at $wp_config"
     fi
     
-    # Check for security keys
-    if grep -q "AUTH_KEY" "$wp_config" && ! grep -q "put your unique phrase here" "$wp_config"; then
-        ok "Security keys are configured for $wp_user"
-    else
-        warn "WordPress security keys not properly configured at $wp_config"
-    fi
-    
-    # Check for database credentials
-    if grep -q "DB_PASSWORD" "$wp_config"; then
-        db_pass=$(grep "DB_PASSWORD" "$wp_config" | cut -d"'" -f4)
-        if [ ${#db_pass} -lt 8 ]; then
-            warn "Weak database password detected for WordPress at $wp_dir"
-        fi
-    fi
-    
-    # Check for debug mode
+    # Check for debug mode in production
     if grep -q "WP_DEBUG.*true" "$wp_config"; then
-        warn "WP_DEBUG is enabled at $wp_config - should be disabled in production"
+        warn "WP_DEBUG is enabled at $wp_config - disable in production"
     fi
-    
-    # Check wp-content/uploads permissions
-    if [ -d "$wp_dir/wp-content/uploads" ]; then
-        uploads_perms=$(stat -c %a "$wp_dir/wp-content/uploads" 2>/dev/null)
-        if [ "$uploads_perms" != "755" ] && [ "$uploads_perms" != "750" ]; then
-            warn "Uploads directory has unusual permissions ($uploads_perms) at $wp_dir"
-        fi
-    fi
-    
-    # Check for .htaccess in uploads (security)
-    if [ ! -f "$wp_dir/wp-content/uploads/.htaccess" ]; then
-        warn "No .htaccess protection in uploads directory at $wp_dir"
-    fi
-    
-    # Check for known vulnerable files
-    if [ -f "$wp_dir/xmlrpc.php" ]; then
-        info "xmlrpc.php exists at $wp_dir - consider blocking if not needed"
-    fi
-    
-    # Check for old WordPress versions (basic check)
-    if [ -f "$wp_dir/wp-includes/version.php" ]; then
-        wp_version=$(grep "wp_version = " "$wp_dir/wp-includes/version.php" | cut -d"'" -f2)
-        if [ -n "$wp_version" ]; then
-            info "WordPress $wp_version at $wp_dir (verify it's current)"
-        fi
-    fi
-    
-done | head -50  # Limit output if many WP installations
+done
 
 # Check for common malware files
 malware_patterns="wp-vcd.php wp-feed.php wp-tmp.php class.plugin-modules.php"

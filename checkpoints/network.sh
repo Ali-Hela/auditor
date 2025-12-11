@@ -28,12 +28,7 @@ fi
 # Check nameservers
 if [ -f /etc/resolv.conf ]; then
     nameserver_count=$(grep -c "^nameserver" /etc/resolv.conf)
-    if [ "$nameserver_count" -gt 0 ]; then
-        ok "Nameservers configured: $nameserver_count"
-        grep "^nameserver" /etc/resolv.conf | while read -r line; do
-            info "  $line"
-        done
-    else
+    if [ "$nameserver_count" -eq 0 ]; then
         error "No nameservers configured in /etc/resolv.conf"
     fi
 fi
@@ -58,49 +53,23 @@ fi
 ptr_record=$(host "$server_ip" 2>/dev/null | grep "domain name pointer" | awk '{print $5}' | sed 's/\.$//')
 if [ -n "$ptr_record" ]; then
     if [ "$ptr_record" = "$hostname_fqdn" ]; then
-        ok "Reverse DNS (PTR) matches hostname: $ptr_record"
-    else
-        warn "Reverse DNS is $ptr_record but hostname is $hostname_fqdn"
+        ok "Reverse DNS (PTR) matches hostname"
     fi
-else
-    warn "No reverse DNS (PTR) record found for $server_ip"
 fi
 
-# Check if listening on correct ports
-expected_ports="22 25 53 80 110 143 443 465 587 993 995 2077 2078 2082 2083 2086 2087"
-for port in $expected_ports; do
-    if netstat -tuln 2>/dev/null | grep -q ":$port " || ss -tuln 2>/dev/null | grep -q ":$port "; then
-        case $port in
-            22) service="SSH" ;;
-            25) service="SMTP" ;;
-            53) service="DNS" ;;
-            80) service="HTTP" ;;
-            110) service="POP3" ;;
-            143) service="IMAP" ;;
-            443) service="HTTPS" ;;
-            465) service="SMTPS" ;;
-            587) service="Submission" ;;
-            993) service="IMAPS" ;;
-            995) service="POP3S" ;;
-            2077) service="WHM/cPanel (SSL)" ;;
-            2078) service="Webmail (SSL)" ;;
-            2082) service="cPanel" ;;
-            2083) service="cPanel (SSL)" ;;
-            2086) service="WHM" ;;
-            2087) service="WHM (SSL)" ;;
-            *) service="Port $port" ;;
-        esac
-        # Only show critical services or report issues
-        if [ "$port" = "22" ] || [ "$port" = "80" ] || [ "$port" = "443" ]; then
-            ok "$service listening on port $port"
-        fi
-    else
-        # Warn about missing critical services
-        if [ "$port" = "22" ] || [ "$port" = "80" ] || [ "$port" = "443" ]; then
-            warn "$service not listening on port $port"
-        fi
+# Check critical service ports only
+if ! netstat -tuln 2>/dev/null | grep -q ":22 " && ! ss -tuln 2>/dev/null | grep -q ":22 "; then
+    error "SSH not listening on port 22"
+fi
+
+if [ -d "/usr/local/cpanel" ]; then
+    if ! netstat -tuln 2>/dev/null | grep -q ":80 " && ! ss -tuln 2>/dev/null | grep -q ":80 "; then
+        warn "HTTP not listening on port 80"
     fi
-done | head -20  # Limit output
+    if ! netstat -tuln 2>/dev/null | grep -q ":443 " && ! ss -tuln 2>/dev/null | grep -q ":443 "; then
+        warn "HTTPS not listening on port 443"
+    fi
+fi
 
 # Check firewall rules
 if command -v csf &> /dev/null; then
