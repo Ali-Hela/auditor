@@ -2,7 +2,14 @@
 . "$(dirname "$0")/../functions.sh"
 
 # Parse --prompts flag
-parse_prompts_flag "$@"
+PROMPTS=0
+for arg in "$@"; do
+    case $arg in
+        --prompts)
+            PROMPTS=1
+            ;;
+    esac
+done
 
 # Check if MySQL (not MariaDB) is installed
 if mysql --version 2>/dev/null | grep -qi 'mysql' && ! mysql --version 2>/dev/null | grep -qi 'mariadb'; then

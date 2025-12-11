@@ -2,7 +2,14 @@
 . "$(dirname "$0")/../functions.sh"
 
 # Parse --prompts flag
-parse_prompts_flag "$@"
+PROMPTS=0
+for arg in "$@"; do
+    case $arg in
+        --prompts)
+            PROMPTS=1
+            ;;
+    esac
+done
 
 notification_missing=0
 
@@ -22,6 +29,14 @@ else
     notification_missing=1
 fi
 
-if [ "$notification_missing" -eq 1 ]; then
-    prompt_and_execute "Do you want to set up root login notification now?" "setup_root_login_notification" "Root login notification setup skipped."
+if [ "$notification_missing" -eq 1 ] && [ "$PROMPTS" -eq 1 ]; then
+    read -p "Do you want to set up root login notification now? (y/N): " confirm
+    case "$confirm" in
+        [yY][eE][sS]|[yY])
+            setup_root_login_notification
+            ;;
+        *)
+            info "Root login notification setup skipped."
+            ;;
+    esac
 fi

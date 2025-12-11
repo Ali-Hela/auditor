@@ -2,7 +2,14 @@
 . "$(dirname "$0")/../functions.sh"
 
 # Parse --prompts flag
-parse_prompts_flag "$@"
+PROMPTS=0
+for arg in "$@"; do
+    case $arg in
+        --prompts)
+            PROMPTS=1
+            ;;
+    esac
+done
 
 # List users with sudo privileges
 if getent group sudo > /dev/null; then

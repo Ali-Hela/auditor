@@ -11,37 +11,6 @@ info() {
     echo "🛈 $*"
 }
 
-# Parse --prompts flag function
-parse_prompts_flag() {
-    PROMPTS=0
-    for arg in "$@"; do
-        case $arg in
-            --prompts)
-                PROMPTS=1
-                ;;
-        esac
-    done
-}
-
-# Generic prompt function
-prompt_and_execute() {
-    local prompt_message="$1"
-    local function_to_call="$2"
-    local skip_message="$3"
-    
-    if [ "$PROMPTS" -eq 1 ]; then
-        read -p "$prompt_message (y/N): " confirm
-        case "$confirm" in
-            [yY][eE][sS]|[yY])
-                $function_to_call
-                ;;
-            *)
-                info "$skip_message"
-                ;;
-        esac
-    fi
-}
-
 install_fail2ban() {
     info "Installing Fail2ban..."
     if command -v yum &> /dev/null; then
@@ -140,18 +109,6 @@ start_cphulk() {
         return 0
     else
         error "Failed to start cPHulk service."
-        return 1
-    fi
-}
-
-start_fail2ban() {
-    systemctl start fail2ban
-    systemctl enable fail2ban
-    if systemctl is-active --quiet fail2ban; then
-        ok "Fail2ban started successfully."
-        return 0
-    else
-        error "Failed to start Fail2ban."
         return 1
     fi
 }
