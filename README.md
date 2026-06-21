@@ -1,171 +1,159 @@
 # Auditor
-Comprehensive cPanel/WHM server security and configuration auditing tool
 
-## Features
-- **60+ security checkpoints** covering all aspects of WHM server management
-- Modular checkpoint system for easy maintenance and extensibility
-- Colorized output with clear status indicators (✔ OK, ✘ Error, ▲ Warning, 🛈 Info)
-- Automated fix prompts with `--prompts` flag
-- Comprehensive logging to track audit history
-- Resource and performance monitoring
-- Proactive security scanning
+Comprehensive cPanel/WHM server **security audit** and **guided remediation** tool.
 
-## Installation:
+Auditor checks a server against a complete, sectioned security checklist, prints
+a colorized report with a security score, and (optionally) walks you through
+applying the recommended fixes.
+
+> **v2** is a ground-up rebuild in Python (stdlib only — no `pip install`).
+> The first checklist it implements end-to-end is the official
+> [cPanel Security Checklist for Sysadmins](https://www.cpanel.net/blog/security/cpanel-security-checklist-for-sysadmins/).
+
+## Highlights
+
+- **Read-only by default.** A plain `./auditor.sh` never changes anything.
+- **Opt-in guided fixes** with `--fix` — and prompts you can skip wholesale
+  (`--yes`) or one-by-one (answer `A` to skip the rest, `q` to stop fixing).
+- **44 checks across 10 categories**, each mapped to a cPanel checklist section.
+- **Colorized terminal output** (`✔ ✘ ▲ 🛈`) plus a clean, structured **log file**.
+- **Severity-ranked summary** with a security score and a "top items to address" list.
+- **Modular** — adding a check is one decorated function; no wiring required.
+- **Zero dependencies** — runs on the stock Python 3.6+ found on cPanel hosts.
+
+## Installation
+
 ```bash
 git clone https://github.com/Ali-Hela/auditor.git
 cd auditor
 ```
 
-## Usage:
+## Usage
 
-### Basic security audit:
 ```bash
+# Read-only audit (default)
 sudo ./auditor.sh
+
+# Guided remediation: prompt before each fix
+sudo ./auditor.sh --fix
+
+# Apply every recommended fix without prompting
+sudo ./auditor.sh --fix --yes
+
+# Only show problems on screen (still logged in full)
+sudo ./auditor.sh --quiet
+
+# Run a single category or specific checks
+sudo ./auditor.sh --category "SSL"
+sudo ./auditor.sh --only LOGIN-2FA,FW-CSF
+
+# List every check, or pick a log location
+./auditor.sh --list
+sudo ./auditor.sh --log /var/log/auditor.log
 ```
 
-### Interactive mode with automated fixes:
-```bash
-sudo ./auditor.sh --prompts
-# or
-sudo ./auditor.sh -p
-```
+You can also invoke the package directly: `sudo python3 -m auditor [options]`.
 
-## Comprehensive Security Checkpoints
+### During `--fix`
 
-### Core Security
-- **Two-Factor Authentication (2FA)** - WHM 2FA policy enforcement
-- **CSF Firewall** - ConfigServer Security & Firewall installation, configuration, and rule validation
-- **Fail2ban** - Installation, active jails, banned IPs, and service monitoring
-- **SSH Security** - Root login, password authentication, protocol version, port configuration
-- **Root Login Notifications** - Alert system for root access
-- **cPHulk** - Brute force protection service
-- **Security Updates** - System update status and available patches
-- **System Security** - SUID files, world-writable files, password policies, failed logins
-
-### Server Configuration
-- **Apache/Web Server** - ServerTokens, ServerSignature, ModSecurity, TraceEnable, directory indexing
-- **PHP Security** - Version checks, dangerous functions, allow_url_include, expose_php, display_errors
-- **MySQL/MariaDB** - Database presence, root remote access restrictions
-- **Hostname** - FQDN compatibility and DNS resolution
-- **System Time/Timezone** - Timezone configuration verification
-- **CloudLinux** - CloudLinux installation check
-
-### WHM/cPanel Specific
-- **WHM Configuration** - License status, update tier, account management
-- **cPanel Services** - Service status, version information, EasyApache
-- **Security Settings** - Fork bomb protection, compiler restrictions, ModSecurity
-- **API Tokens** - Token usage monitoring
-- **Account Auditing** - Suspended accounts, password age, demo accounts
-- **Tweak Settings** - Security-related tweak validation
-
-### Email Security
-- **Exim Mail Server** - Service status, queue size, frozen emails
-- **SPF Records** - Sender Policy Framework validation
-- **DKIM** - DomainKeys Identified Mail configuration
-- **DMARC** - Domain-based Message Authentication
-- **Email Authentication** - SMTP authentication requirements
-- **RBL/Spam Protection** - Blacklist checking configuration
-- **Mail Bombing Detection** - High-volume sender identification
-
-### SSL/TLS Security
-- **SSL Certificates** - Certificate existence and expiry monitoring
-- **AutoSSL** - Automatic SSL renewal configuration
-- **TLS Protocols** - TLS 1.2+ enforcement, deprecated protocol detection
-- **SSL Cipher Suites** - Strong cipher configuration
-- **HSTS** - HTTP Strict Transport Security headers
-- **Certificate Validation** - Self-signed certificate detection
-
-### Resource Monitoring
-- **Disk Usage** - Root and /home partition monitoring
-- **Inode Usage** - File system inode tracking
-- **Memory Usage** - RAM and swap utilization
-- **Load Average** - CPU load per core monitoring
-- **Large Files** - /tmp directory analysis
-- **User Disk Usage** - Top space consumers
-- **Database Sizes** - MySQL/MariaDB storage analysis
-
-### Backup Management
-- **Backup Configuration** - cPanel backup system validation
-- **Backup Freshness** - Last backup date verification
-- **Backup Storage** - Disk space monitoring
-- **Remote Destinations** - Offsite backup configuration
-- **Database Backups** - MySQL backup file verification
-- **Retention Policies** - Backup rotation checking
-
-### Network & DNS
-- **Internet Connectivity** - Basic connectivity tests
-- **DNS Resolution** - Nameserver functionality
-- **Forward DNS** - A record validation
-- **Reverse DNS** - PTR record checking
-- **Port Scanning** - Expected service port verification
-- **Firewall Status** - CSF/firewalld/UFW detection
-- **Database Exposure** - Public MySQL/PostgreSQL/Redis/MongoDB detection
-- **DDoS Protection** - cPHulk and rate limiting
-
-### FTP Security
-- **FTP Service Status** - Pure-FTPd/ProFTPD/vsftpd detection
-- **FTP over TLS** - Encryption requirement checking
-- **Anonymous FTP** - Anonymous access validation
-- **FTP Chroot** - User directory restriction
-- **Connection Limits** - Rate limiting configuration
-- **Brute Force Detection** - Failed login monitoring
-
-### CMS Security (WordPress, Joomla, Drupal)
-- **WordPress Detection** - Installation discovery
-- **File Permissions** - wp-config.php and uploads directory
-- **Security Keys** - WordPress salt validation
-- **Debug Mode** - Production debug settings
-- **Malware Scanning** - Common malware file detection
-- **Version Checking** - Outdated CMS detection
-- **Plugin Analysis** - Outdated plugin identification
-- **Admin Accounts** - Suspicious user detection
-
-### Additional Checks
-- **CSE** - ConfigServer eXploit Scanner
-- **mod_evasive** - Apache DDoS protection module
-- **User Accounts** - Sudo/wheel group privileges
-- **Kernel Updates** - Available kernel updates and reboot requirements
-- **SELinux** - Security-Enhanced Linux status
-- **Cron Jobs** - Suspicious scheduled task detection
-- **Log Analysis** - System error and security log review
-
-## Output Examples
+For each failing check that has an automatable fix you'll be asked:
 
 ```
-✔ 2FA is enabled in WHM
-✔ Apache is running
-✘ PHP allow_url_include should be Off - critical security risk
-▲ Mail queue has 150 messages - may need attention
-🛈 PHP version: PHP 8.1.2
+? Apply fix? Enable cPHulk [y]es/[n]o/[A]ll-skip/[q]uit:
 ```
 
-## Log File
+- `y` apply this fix · `n` skip it · `A` skip all remaining fixes · `q` stop fixing
+- Checks that can only be fixed by hand print a `(manual)` step instead of prompting.
 
-All audit results are automatically logged to `auditor.log` with timestamps for compliance and tracking purposes.
+## What it checks (cPanel checklist coverage)
+
+| # | Category | Checks |
+|---|----------|--------|
+| 1 | Login & Access | 2FA policy, root SSH login, cPHulk, password strength, IP restriction |
+| 2 | Firewall & WAF | CSF installed, CSF not in testing, lfd running, ModSecurity, OWASP CRS, open ports |
+| 3 | SSL / TLS | AutoSSL, Require SSL for services, deprecated TLS, cipher suites |
+| 4 | Accounts & Permissions | CloudLinux, CageFS, shell access, FileProtect |
+| 5 | Backups & Recovery | Backups enabled, incremental, remote destination, restore testing |
+| 6 | Database & PHP | MySQL exposure, SHOW DATABASES, DB passwords, expose_php, allow_url_fopen, dangerous functions, open_basedir |
+| 7 | Intrusion Detection & Logs | Brute-force detection, security notifications, log monitoring |
+| 8 | Updates & Patching | Auto cPanel updates, version & tier, RPM updates, CMS/plugin updates |
+| 9 | DDoS & Network | Imunify360, mod_evasive, edge WAF/CDN |
+| 10 | Audits & Best Practices | Security Advisor, periodic audits, training, security advisories |
+
+Run `./auditor.sh --list` for the full per-check breakdown.
+
+## Output example
+
+```
+  LOGIN & ACCESS
+  ──────────────
+  ✘ cPHulk brute-force protection is disabled  [HIGH]
+      cPHulk blocks repeated failed logins to cPanel/WHM/SSH.
+      → (fix) Enable cPHulk
+  ✔ Minimum password strength is 65
+  🛈 Restrict admin access by IP
+      Limit WHM/SSH access to trusted IPs ...
+
+================================================================
+  SUMMARY
+================================================================
+  ✔ 9 OK   ✘ 7 fail   ▲ 9 warn   🛈 11 info   – 5 skip
+  Security score: 36%  (9/25 passing checks)
+```
+
+Exit code is `0` when no checks fail and `1` when at least one `✘` remains —
+handy for cron/monitoring.
+
+## Architecture
+
+```
+auditor.sh                 # launcher -> python3 -m auditor
+auditor/
+  __main__.py              # CLI
+  core/
+    model.py               # Status / Severity / Finding / Remediation
+    registry.py            # @register decorator + check ordering
+    util.py                # shell + cPanel helpers (whmapi1, configs, ports…)
+    report.py              # colorized terminal + log file
+    remediate.py           # interactive fix engine (skip / skip-all / quit)
+  checks/                  # one module per checklist section
+    login.py firewall.py ssl.py accounts.py backups.py
+    database_php.py intrusion.py updates.py ddos.py audits.py
+```
+
+### Adding a check
+
+```python
+from ..core.model import Finding, Remediation, Severity, Status
+from ..core.registry import register
+
+@register("MY-CHECK", "Short title", "Category Name", order=10)
+def my_check():
+    if not condition_ok():
+        yield Finding("MY-CHECK", "Human-readable problem", Status.FAIL,
+                      "Why it matters.", Severity.HIGH,
+                      Remediation("What the fix does",
+                                  commands=["whmapi1 set_something value=1"],
+                                  manual="WHM > ... (fallback instructions)"))
+    else:
+        yield Finding("MY-CHECK", "All good", Status.OK)
+```
+
+Drop the function in a `checks/*.py` module — it registers itself.
 
 ## Requirements
 
-- Root or sudo access
-- cPanel/WHM installation (optional - tool will prompt if not detected)
-- Bash 4.0+
-- Standard Linux utilities (grep, awk, find, etc.)
+- Root / sudo (most checks read privileged config).
+- Python 3.6+ (already present on cPanel/CloudLinux hosts).
+- Standard Linux utilities (`ss`/`netstat`, `httpd`, `systemctl`, `whmapi1` when on cPanel).
 
-## Best Practices
+## Best practices
 
-1. Run auditor regularly (daily or weekly) as part of maintenance
-2. Use `--prompts` mode carefully - review changes before applying
-3. Keep a backup before making automated changes
-4. Review the log file for trending issues
-5. Address ✘ errors immediately, ▲ warnings when possible
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues for:
-- Additional security checks
-- Bug fixes
-- Documentation improvements
-- New automated fix functions
+1. Run regularly (cron daily/weekly) and watch the trend in the log.
+2. Review `--fix` changes; keep a backup before bulk-applying.
+3. Address `✘` (fail) items first, then `▲` (warnings).
+4. Re-run after fixing to confirm the score improved.
 
 ## License
 
-This project is provided as-is for system administrators managing cPanel/WHM servers.
+Provided as-is for system administrators managing cPanel/WHM servers.
