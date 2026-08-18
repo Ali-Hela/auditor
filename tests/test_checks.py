@@ -7,7 +7,7 @@ touching real config.
 import unittest
 from unittest import mock
 
-from auditor.checks import database_php, firewall, login, ssl
+from auditor.checks import accounts, database_php, firewall, login, ssl
 from auditor.core.model import Status
 from auditor.core.registry import all_checks
 
@@ -186,6 +186,76 @@ class TestPhpEol(unittest.TestCase):
                 database_php, "ea_php_inis",
                 return_value=["/opt/cpanel/ea-php83/root/etc/php.ini"]):
             self.assertEqual(only(database_php.php_eol()).status, Status.OK)
+
+
+class TestDirectoryIndexing(unittest.TestCase):
+    """ACC-INDEXING: is any account's document root browsable?"""
+
+    def _run(self, htaccess_by_root, global_state=None):
+        docroots = [("bob", "/home/bob/public_html"),
+                    ("eve", "/home/eve/public_html")]
+
+        def fake_read(path):
+            for root, text in htaccess_by_root.items():
+                if path == root + "/.htaccess":
+                    return text
+            return None
+
+        with mock.patch.object(accounts, "is_cpanel", return_value=True), \
+                mock.patch.object(accounts, "cpanel_docroots",
+                                  return_value=docroots), \
+                mock.patch.object(accounts, "apache_global_indexing",
+                                  return_value=global_state), \
+                mock.patch.object(accounts, "read_file", side_effect=fake_read):
+            return only(accounts.directory_indexing())
+
+    def test_all_disabled_passes(self):
+        f = self._run({"/home/bob/public_html": "Options -Indexes",
+                       "/home/eve/public_html": "Options -Indexes"})
+        self.assertEqual(f.status, Status.OK)
+
+    def test_explicitly_enabled_fails(self):
+        f = self._run({"/home/bob/public_html": "Options +Indexes",
+                       "/home/eve/public_html": "Options -Indexes"})
+        self.assertEqual(f.status, Status.FAIL)
+        self.assertIn("1 site", f.title)
+        self.assertIn("/home/bob/public_html", f.detail)
+
+    def test_enabled_wins_even_when_others_are_merely_unset(self):
+        f = self._run({"/home/bob/public_html": "Options +Indexes"})
+        self.assertEqual(f.status, Status.FAIL)
+
+    def test_missing_htaccess_warns_when_no_global_default(self):
+        f = self._run({}, global_state=None)
+        self.assertEqual(f.status, Status.WARN)
+        self.assertIn("2 site", f.title)
+
+    def test_global_disable_covers_accounts_without_htaccess(self):
+        # A server-wide <Directory "/home"> Options -Indexes makes a missing
+        # .htaccess harmless; flagging it would be a false positive.
+        f = self._run({}, global_state=False)
+        self.assertEqual(f.status, Status.OK)
+
+    def test_global_enable_still_warns(self):
+        f = self._run({}, global_state=True)
+        self.assertEqual(f.status, Status.WARN)
+
+    def test_fix_is_risky_and_backs_up(self):
+        f = self._run({"/home/bob/public_html": "Options +Indexes"})
+        self.assertTrue(f.remediation.risky)
+        self.assertIn("/home/bob/public_html/.htaccess",
+                      f.remediation.backup_files)
+
+    def test_no_docroots_skips(self):
+        with mock.patch.object(accounts, "is_cpanel", return_value=True), \
+                mock.patch.object(accounts, "cpanel_docroots", return_value=[]):
+            self.assertEqual(only(accounts.directory_indexing()).status,
+                             Status.SKIP)
+
+    def test_non_cpanel_skips(self):
+        with mock.patch.object(accounts, "is_cpanel", return_value=False):
+            self.assertEqual(only(accounts.directory_indexing()).status,
+                             Status.SKIP)
 
 
 class TestEveryCheckRunsCleanly(unittest.TestCase):

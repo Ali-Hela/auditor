@@ -18,7 +18,7 @@ applying the recommended fixes.
   as applied if the check stops failing.
 - **Backups before edits**, and **risk gating** — fixes that can lock you out
   of the server are withheld unless you pass `--dangerous`, and always prompt.
-- **51 checks across 10 categories**, each mapped to a checklist section.
+- **52 checks across 10 categories**, each mapped to a checklist section.
 - **Machine-readable output** with `--json`, for cron and monitoring.
 - **Colorized terminal output** (`✔ ✘ ▲ 🛈`) plus an appended log file.
 - **Modular** — adding a check is one decorated function; no wiring required.
@@ -111,7 +111,7 @@ reporting a green check against a daemon still running the old config.
 | 1 | Login & Access | 7 | 2FA policy, root SSH login, SSH password auth, cPHulk, password strength, IP-restricted admin access, root authorized_keys |
 | 2 | Firewall & WAF | 6 | CSF installed, CSF not in testing, lfd running, ModSecurity, OWASP CRS, unexpected open ports |
 | 3 | SSL / TLS | 4 | AutoSSL, Require SSL for services, deprecated TLS protocols, weak cipher suites |
-| 4 | Accounts & Permissions | 6 | CloudLinux, CageFS, shell access, FileProtect, `/tmp` noexec/nosuid, compiler access |
+| 4 | Accounts & Permissions | 7 | CloudLinux, CageFS, shell access, FileProtect, directory indexing on account sites, `/tmp` noexec/nosuid, compiler access |
 | 5 | Backups & Recovery | 4 | backups enabled, incremental, remote destination, restore testing |
 | 6 | Database & PHP | 8 | MySQL exposure, SHOW DATABASES, passwordless DB users, end-of-life PHP, `expose_php`, `allow_url_fopen`, `allow_url_include`, dangerous functions |
 | 7 | Intrusion Detection & Logs | 4 | brute-force detection, security notifications, security logs present, log monitoring |

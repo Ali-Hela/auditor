@@ -10,9 +10,9 @@ import tempfile
 import unittest
 
 from auditor.core.util import (backup_file, is_loopback, is_public_addr,
-                               normalize_addr, parse_kv, parse_socket_lines,
-                               parse_sshd_output, php_version_of_ini,
-                               set_config_line)
+                               normalize_addr, parse_kv, parse_options_indexing,
+                               parse_socket_lines, parse_sshd_output,
+                               php_version_of_ini, set_config_line)
 
 # Real `ss -tlnH` output, including the IPv6 and wildcard forms that the
 # original address filter mishandled.
@@ -203,6 +203,58 @@ class TestBackupFile(unittest.TestCase):
 
     def test_missing_file_returns_none(self):
         self.assertIsNone(backup_file("/nonexistent/path"))
+
+
+class TestOptionsIndexing(unittest.TestCase):
+    """Apache's Options merging decides whether a folder is browsable."""
+
+    def test_no_directive_is_undecided(self):
+        self.assertIsNone(parse_options_indexing(""))
+        self.assertIsNone(parse_options_indexing(None))
+        self.assertIsNone(parse_options_indexing("RewriteEngine On\n"))
+
+    def test_minus_indexes_disables(self):
+        self.assertIs(parse_options_indexing("Options -Indexes\n"), False)
+        self.assertIs(parse_options_indexing("options -indexes\n"), False)
+        self.assertIs(parse_options_indexing("Options -Indexes +FollowSymLinks"),
+                      False)
+
+    def test_plus_indexes_enables(self):
+        self.assertIs(parse_options_indexing("Options +Indexes\n"), True)
+
+    def test_bare_indexes_enables(self):
+        self.assertIs(parse_options_indexing("Options Indexes FollowSymLinks"),
+                      True)
+
+    def test_absolute_form_without_indexes_disables(self):
+        # The bare form replaces the whole set, so omitting Indexes turns
+        # listing off just as -Indexes would.
+        self.assertIs(parse_options_indexing("Options FollowSymLinks"), False)
+
+    def test_all_and_none(self):
+        self.assertIs(parse_options_indexing("Options All"), True)
+        self.assertIs(parse_options_indexing("Options None"), False)
+
+    def test_later_directive_wins(self):
+        self.assertIs(
+            parse_options_indexing("Options -Indexes\nOptions +Indexes\n"), True)
+        self.assertIs(
+            parse_options_indexing("Options +Indexes\nOptions -Indexes\n"), False)
+
+    def test_comments_are_ignored(self):
+        self.assertIsNone(parse_options_indexing("# Options +Indexes\n"))
+
+    def test_realistic_wordpress_htaccess(self):
+        text = (
+            "# BEGIN WordPress\n"
+            "<IfModule mod_rewrite.c>\n"
+            "RewriteEngine On\n"
+            "RewriteBase /\n"
+            "RewriteRule ^index\\.php$ - [L]\n"
+            "</IfModule>\n"
+            "# END WordPress\n"
+            "Options -Indexes\n")
+        self.assertIs(parse_options_indexing(text), False)
 
 
 class TestPhpVersionOfIni(unittest.TestCase):

@@ -405,6 +405,123 @@ def cpanel_users() -> List[str]:
         return []
 
 
+@lru_cache(maxsize=1)
+def cpanel_docroots() -> List[Tuple[str, str]]:
+    """[(user, documentroot)] for every vhost on the server.
+
+    Read from /var/cpanel/userdata/<user>/<domain>, which covers addon domains
+    and subdomains as well as the main one - they have their own document
+    roots and their own .htaccess. The files are YAML, but the one key we need
+    is a plain scalar, so a line scan avoids depending on a YAML parser that
+    the stock python3 does not have.
+    """
+    pairs = []
+    for user in cpanel_users():
+        user_dir = os.path.join("/var/cpanel/userdata", user)
+        try:
+            names = os.listdir(user_dir)
+        except OSError:
+            continue
+        for name in names:
+            # 'main' lists domains rather than describing a vhost, '*.cache'
+            # are generated, and '<domain>_SSL' repeats the same docroot.
+            if name == "main" or name.endswith((".cache", "_SSL")):
+                continue
+            for line in (read_file(os.path.join(user_dir, name)) or "").splitlines():
+                if line.startswith("documentroot:"):
+                    root = line.split(":", 1)[1].strip().strip('"').strip("'")
+                    if root:
+                        pairs.append((user, root))
+                    break
+    if not pairs:
+        # No userdata (or unreadable): fall back to the conventional layout.
+        for user in cpanel_users():
+            root = "/home/%s/public_html" % user
+            if os.path.isdir(root):
+                pairs.append((user, root))
+    # De-duplicate while keeping order stable for reproducible reports.
+    seen, unique = set(), []
+    for pair in pairs:
+        if pair[1] not in seen:
+            seen.add(pair[1])
+            unique.append(pair)
+    return unique
+
+
+def parse_options_indexing(text: Optional[str]) -> Optional[bool]:
+    """Does this Apache config text leave directory indexing on?
+
+    Returns True (indexing enabled), False (disabled), or None (no Options
+    directive at all, so the parent context decides).
+
+    Apache merges Options across directives in order: the ``+``/``-`` form
+    adjusts the inherited set, while the bare form replaces it outright - so
+    ``Options FollowSymLinks`` turns indexing off just as surely as
+    ``Options -Indexes`` does.
+    """
+    state = None
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not line.lower().startswith("options"):
+            continue
+        tokens = line.split()[1:]
+        if not tokens:
+            continue
+        relative = [t for t in tokens if t[0] in "+-"]
+        if len(relative) == len(tokens):
+            # Adjusts whatever was inherited.
+            for token in relative:
+                if token[1:].lower() == "indexes":
+                    state = token[0] == "+"
+        else:
+            # Absolute form: this list becomes the whole set.
+            lowered = [t.lstrip("+-").lower() for t in tokens]
+            if "all" in lowered:
+                state = True
+            elif "none" in lowered:
+                state = False
+            else:
+                state = "indexes" in lowered
+    return state
+
+
+@lru_cache(maxsize=1)
+def apache_global_indexing() -> Optional[bool]:
+    """Whether the server-wide Apache config leaves indexing on under /home.
+
+    Only the <Directory> blocks that cover account document roots are
+    considered; a block for some unrelated path says nothing about them.
+    Returns None when no such block sets Options.
+    """
+    paths = (["/etc/apache2/conf/httpd.conf"]
+             + sorted(glob.glob("/etc/apache2/conf.d/includes/*.conf"))
+             + sorted(glob.glob("/etc/apache2/conf.d/*.conf")))
+    state = None
+    for path in paths:
+        text = read_file(path)
+        if not text:
+            continue
+        block_path, body = None, []
+        for raw in text.splitlines():
+            line = raw.strip()
+            low = line.lower()
+            if low.startswith("<directory"):
+                m = re.match(r"<directory\s+(.*?)\s*>", line, re.I)
+                block_path = (m.group(1).strip('"').strip("'") if m else None)
+                body = []
+            elif low.startswith("</directory"):
+                if block_path in ("/", "/home", "/home/", '"/home"'):
+                    found = parse_options_indexing("\n".join(body))
+                    if found is not None:
+                        state = found
+                block_path, body = None, []
+            elif block_path is not None:
+                body.append(line)
+    return state
+
+
 def mount_options(target: str) -> Optional[List[str]]:
     """Mount options for ``target``, or None if it is not a separate mount."""
     text = read_file("/proc/mounts")
@@ -424,5 +541,6 @@ def clear_caches():
     observes the config files as they are on disk now.
     """
     for fn in (read_file, is_cpanel, cpanel_config, _whmapi1_cached,
-               listening_ports, sshd_config, apache_modules, ea_php_inis):
+               listening_ports, sshd_config, apache_modules, ea_php_inis,
+               cpanel_docroots, apache_global_indexing):
         fn.cache_clear()
