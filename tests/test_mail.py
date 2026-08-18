@@ -70,24 +70,88 @@ class MailCase(unittest.TestCase):
 
 
 class TestSmtpRestrictions(MailCase):
-    def test_live_server_is_unrestricted(self):
-        f = self.check(mail.smtp_restrictions)
+    """cPanel's smtpmailgidonly and CSF's SMTP_BLOCK are alternatives.
+
+    CSF's own documentation says SMTP_BLOCK replaces WHM > Tweak Settings >
+    SMTP Tweaks, so requiring the cPanel tweak specifically would fail a
+    server that is correctly protected by CSF.
+    """
+
+    def _run(self, whm=None, csf=None, csf_extra=None):
+        overrides = {"smtpmailgidonly": whm}
+        if csf is None:
+            csf_conf = None                       # CSF not installed
+        else:
+            lines = ['SMTP_BLOCK = "%s"' % csf]
+            for key, value in (csf_extra or {}).items():
+                lines.append('%s = "%s"' % (key, value))
+            csf_conf = "\n".join(lines)
+        patches = with_config(overrides)
+        for p in patches:
+            p.start()
+        reader = mock.patch.object(mail, "read_file", return_value=csf_conf)
+        reader.start()
+        try:
+            return only(mail.smtp_restrictions())
+        finally:
+            reader.stop()
+            for p in patches:
+                p.stop()
+
+    def test_csf_on_whm_off_passes(self):
+        # The case that used to be a false FAIL.
+        f = self._run(whm="0", csf="1")
+        self.assertEqual(f.status, Status.OK)
+        self.assertIn("CSF", f.title)
+
+    def test_whm_on_csf_off_passes(self):
+        f = self._run(whm="1", csf="0")
+        self.assertEqual(f.status, Status.OK)
+        self.assertIn("cPanel", f.title)
+
+    def test_whm_on_without_csf_installed_passes(self):
+        self.assertEqual(self._run(whm="1", csf=None).status, Status.OK)
+
+    def test_csf_on_without_cpanel_setting_passes(self):
+        self.assertEqual(self._run(whm=None, csf="1").status, Status.OK)
+
+    def test_both_on_passes(self):
+        self.assertEqual(self._run(whm="1", csf="1").status, Status.OK)
+
+    def test_both_off_fails(self):
+        f = self._run(whm="0", csf="0")
         self.assertEqual(f.status, Status.FAIL)
         self.assertTrue(f.remediation.risky)
 
-    def test_enabled_passes(self):
-        self.assertEqual(
-            self.check(mail.smtp_restrictions, {"smtpmailgidonly": "1"}).status,
-            Status.OK)
+    def test_both_off_lists_what_is_off(self):
+        f = self._run(whm="0", csf="0")
+        self.assertIn("cPanel smtpmailgidonly=0", f.detail)
+        self.assertIn("CSF SMTP_BLOCK=0", f.detail)
 
-    def test_absent_setting_skips(self):
-        self.assertEqual(
-            self.check(mail.smtp_restrictions, {"smtpmailgidonly": None}).status,
-            Status.SKIP)
+    def test_fix_targets_csf_when_csf_is_installed(self):
+        f = self._run(whm="0", csf="0")
+        self.assertIn("SMTP_BLOCK", f.remediation.summary)
+        self.assertIn("/etc/csf/csf.conf", f.remediation.backup_files)
 
-    def test_non_cpanel_skips(self):
-        self.assertEqual(
-            self.check(mail.smtp_restrictions, cpanel=False).status, Status.SKIP)
+    def test_fix_targets_whm_when_csf_is_absent(self):
+        f = self._run(whm="0", csf=None)
+        self.assertIn("smtpmailgidonly", f.remediation.commands[0])
+
+    def test_neither_source_readable_skips(self):
+        self.assertEqual(self._run(whm=None, csf=None).status, Status.SKIP)
+
+    def test_csf_exemptions_and_ports_are_reported(self):
+        f = self._run(whm="0", csf="1",
+                      csf_extra={"SMTP_PORTS": "25,465,587",
+                                 "SMTP_ALLOWUSER": "mailman,someapp"})
+        self.assertIn("25,465,587", f.detail)
+        self.assertIn("someapp", f.detail)
+
+    def test_csf_pass_warns_about_the_ipt_owner_dependency(self):
+        # CSF accepts SMTP_BLOCK=1 even where ipt_owner is unavailable, so the
+        # config alone is not proof the rules are actually in force.
+        f = self._run(whm="0", csf="1")
+        self.assertIn("csftest.pl", f.detail)
 
 
 class TestRateLimit(MailCase):

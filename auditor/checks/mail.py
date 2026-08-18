@@ -16,7 +16,8 @@ absent key is treated as unset rather than as an empty value.
 
 from ..core.model import Finding, Remediation, Severity, Status
 from ..core.registry import register
-from ..core.util import cpanel_config, exim_localopts, is_cpanel, truthy
+from ..core.util import (cpanel_config, exim_localopts, is_cpanel, parse_kv,
+                         read_file, set_config_line, truthy)
 
 CAT = "Mail & Anti-Spam"
 REF = "Mail security: cPanel Exim configuration & outbound abuse controls"
@@ -36,46 +37,125 @@ def _tweak_fix(key, value, risk=None):
                           % (key, value)], risk=risk)
 
 
-@register("MAIL-SMTP-RESTRICT", "SMTP restrictions", CAT, order=10)
-def smtp_restrictions():
-    """Stops accounts bypassing Exim to talk straight to a remote port 25.
+CSF_CONF = "/etc/csf/csf.conf"
+SMTP_RESTRICT_RISK = (BREAKS_MAIL + ": applications that open their own "
+                      "connection to a remote mail server stop being able to, "
+                      "and must use the sendmail binary or authenticated "
+                      "submission instead")
 
-    Without it, a compromised account (or a script with a hardcoded mail
-    library) sends directly, so none of the server's rate limits, logging or
-    outbound spam scanning ever sees the message.
+
+def _csf_smtp_block():
+    """CSF's outgoing SMTP block: (enabled, details) or (None, {}) if absent.
+
+    CSF's SMTP_BLOCK does the same job as cPanel's SMTP Restrictions - its own
+    documentation says it replaces WHM > Tweak Settings > SMTP Tweaks - so
+    either one being on means the server is covered.
     """
-    if not is_cpanel():
-        yield _skip("MAIL-SMTP-RESTRICT", "SMTP restrictions (cPanel only)")
-        return
-    value = cpanel_config().get("smtpmailgidonly")
+    conf = read_file(CSF_CONF)
+    if conf is None:
+        return None, {}
+    cfg = parse_kv(conf)
+    value = cfg.get("SMTP_BLOCK")
     if value is None:
-        yield _skip("MAIL-SMTP-RESTRICT", "SMTP restrictions (setting not found)",
-                    "smtpmailgidonly is absent from cpanel.config.")
-    elif truthy(value):
-        yield Finding("MAIL-SMTP-RESTRICT", "SMTP restrictions are enabled",
-                      Status.OK,
-                      "Only root, exim and mailman may reach remote SMTP ports.",
-                      reference=REF)
+        return None, {}
+    return truthy(value), cfg
+
+
+@register("MAIL-SMTP-RESTRICT", "Outgoing SMTP restrictions", CAT, order=10)
+def smtp_restrictions():
+    """Stops accounts bypassing Exim to talk straight to a remote mail server.
+
+    Without it, a compromised account (or a script with its own mail library)
+    connects directly, so none of the server's rate limits, logging or
+    outbound spam scanning ever sees the message.
+
+    Two mechanisms provide this and they are alternatives, not a pair: cPanel's
+    SMTP Restrictions (smtpmailgidonly) and CSF's SMTP_BLOCK. Either one is
+    sufficient, so requiring the cPanel tweak specifically would fail a server
+    that is properly protected by CSF.
+    """
+    whm = cpanel_config().get("smtpmailgidonly") if is_cpanel() else None
+    whm = truthy(whm) if whm is not None else None
+    csf, csf_cfg = _csf_smtp_block()
+
+    if whm is None and csf is None:
+        yield _skip("MAIL-SMTP-RESTRICT", "Outgoing SMTP restrictions",
+                    "Neither cPanel's smtpmailgidonly nor CSF's SMTP_BLOCK "
+                    "could be read.")
+        return
+
+    if csf:
+        detail = ["Provided by CSF (SMTP_BLOCK=1)."]
+        ports = csf_cfg.get("SMTP_PORTS", "").strip()
+        if ports:
+            detail.append("Blocked ports: %s" % ports)
+        exempt = [v for v in (csf_cfg.get("SMTP_ALLOWUSER", "").strip(),
+                              csf_cfg.get("SMTP_ALLOWGROUP", "").strip()) if v]
+        if exempt:
+            detail.append("Exempt users/groups: %s" % "; ".join(exempt))
+        # SMTP_BLOCK needs the iptables ipt_owner/xt_owner module, which is
+        # missing on some VPS platforms - and CSF accepts the setting either
+        # way, so the config alone is not proof the rules are in force.
+        detail.append("SMTP_BLOCK relies on the iptables ipt_owner/xt_owner "
+                      "module; confirm it works here with /etc/csf/csftest.pl.")
+        if whm is False:
+            detail.append("cPanel's own SMTP Restrictions are off, which is "
+                          "fine - CSF's documentation says SMTP_BLOCK replaces "
+                          "them.")
+        yield Finding("MAIL-SMTP-RESTRICT",
+                      "Outgoing SMTP is restricted by CSF", Status.OK,
+                      "\n".join(detail), reference=REF)
+        return
+
+    if whm:
+        detail = "Provided by cPanel SMTP Restrictions (smtpmailgidonly=1)."
+        if csf is False:
+            detail += ("\nCSF's SMTP_BLOCK is off, which is fine - the two are "
+                       "alternatives.")
+        yield Finding("MAIL-SMTP-RESTRICT",
+                      "Outgoing SMTP is restricted by cPanel", Status.OK,
+                      detail, reference=REF)
+        return
+
+    # Neither mechanism is on.
+    if csf is False:
+        # CSF is installed, so fix it there: it works at the firewall and
+        # covers the submission ports as well as 25.
+        fix = Remediation(
+            "Enable CSF's outgoing SMTP block (SMTP_BLOCK)",
+            func=lambda: set_config_line(CSF_CONF, "SMTP_BLOCK", '"1"',
+                                         spaced=True),
+            commands=["csf -r"],
+            backup_files=[CSF_CONF],
+            restart="csf/lfd",
+            risk=SMTP_RESTRICT_RISK,
+            manual="Set SMTP_BLOCK = \"1\" in %s and run 'csf -r'. Run "
+                   "/etc/csf/csftest.pl first to confirm the ipt_owner module "
+                   "is available, and add any legitimate sender to "
+                   "SMTP_ALLOWUSER. The equivalent cPanel setting is WHM > "
+                   "Tweak Settings > SMTP Restrictions." % CSF_CONF)
     else:
-        yield Finding("MAIL-SMTP-RESTRICT", "SMTP restrictions are disabled",
-                      Status.FAIL,
-                      "Any account can open a connection to a remote mail "
-                      "server directly, bypassing Exim entirely. Rate limits, "
-                      "outbound spam scanning and per-account logging all stop "
-                      "applying, so a compromised account can spam until the "
-                      "server's IP is blocklisted.", Severity.HIGH,
-                      Remediation(
-                          "Enable SMTP restrictions",
-                          manual="WHM > Security Center > SMTP Restrictions. "
-                                 "Check first whether any customer application "
-                                 "sends through an external relay on port 25 - "
-                                 "those will need to move to authenticated "
-                                 "submission on 587.",
-                          **_tweak_fix("smtpmailgidonly", "1",
-                                       risk=BREAKS_MAIL + ": applications that "
-                                       "send direct to a remote port 25 stop "
-                                       "being able to")),
-                      reference=REF)
+        fix = Remediation(
+            "Enable cPanel's SMTP Restrictions",
+            manual="WHM > Security Center > SMTP Restrictions. Check first "
+                   "whether any customer application sends through an external "
+                   "relay on port 25 - those will need to move to "
+                   "authenticated submission on 587.",
+            **_tweak_fix("smtpmailgidonly", "1", risk=SMTP_RESTRICT_RISK))
+
+    available = []
+    if whm is False:
+        available.append("cPanel smtpmailgidonly=0")
+    if csf is False:
+        available.append("CSF SMTP_BLOCK=0")
+    yield Finding("MAIL-SMTP-RESTRICT", "Outgoing SMTP is unrestricted",
+                  Status.FAIL,
+                  "Any account can open a connection to a remote mail server "
+                  "directly, bypassing Exim entirely. Rate limits, outbound "
+                  "spam scanning and per-account logging all stop applying, so "
+                  "a compromised account can spam until the server's IP is "
+                  "blocklisted.\nOff: %s" % ", ".join(available),
+                  Severity.HIGH, fix, reference=REF)
 
 
 @register("MAIL-RATELIMIT", "Outbound mail rate limit", CAT, order=20)
