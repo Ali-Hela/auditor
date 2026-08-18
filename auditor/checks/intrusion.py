@@ -10,6 +10,9 @@ from ..core.util import (is_cpanel, read_file, service_active, truthy, whmapi1,
 CAT = "Intrusion Detection & Logs"
 REF = "cPanel checklist #7: Intrusion detection and security logs"
 
+# Logs worth checking exist and are being written to.
+SECURITY_LOGS = ["/var/log/secure", "/var/log/messages"]
+
 
 @register("IDS-BRUTEFORCE", "Brute-force / intrusion detection", CAT, order=10)
 def brute_force():
@@ -33,18 +36,17 @@ def brute_force():
                       "Intrusion detection active: %s" % ", ".join(active),
                       Status.OK, reference=REF)
     else:
+        pkg = "dnf" if which("dnf") else "yum"
         yield Finding("IDS-BRUTEFORCE",
                       "No intrusion-detection service detected", Status.FAIL,
                       "Run at least one of Fail2Ban, CSF/lfd, or cPHulk to block "
                       "repeated failed logins.", Severity.HIGH,
                       Remediation(
-                          "Install Fail2Ban",
-                          commands=["yum -y install fail2ban && "
-                                    "systemctl enable --now fail2ban"]
-                          if which("yum") else
-                          ["dnf -y install fail2ban && "
-                           "systemctl enable --now fail2ban"],
-                          manual="Or enable cPHulk in WHM > Security Center.",
+                          "Install and start Fail2Ban",
+                          commands=["%s -y install fail2ban" % pkg,
+                                    "systemctl enable --now fail2ban"],
+                          manual="Or enable cPHulk in WHM > Security Center > "
+                                 "cPHulk Brute Force Protection.",
                           restart="fail2ban"),
                       reference=REF)
 
@@ -77,7 +79,41 @@ def notifications():
                       reference=REF)
 
 
-@register("IDS-LOGMONITOR", "Log monitoring", CAT, order=30)
+@register("IDS-LOGS", "Security logs are being written", CAT, order=30)
+def security_logs():
+    """An empty or missing auth log usually means logging broke, or was wiped."""
+    missing, empty = [], []
+    for path in SECURITY_LOGS:
+        if not os.path.isfile(path):
+            missing.append(path)
+            continue
+        try:
+            if os.path.getsize(path) == 0:
+                empty.append(path)
+        except OSError:
+            missing.append(path)
+    if not missing and not empty:
+        yield Finding("IDS-LOGS", "Security logs are present and non-empty",
+                      Status.OK, ", ".join(SECURITY_LOGS), reference=REF)
+        return
+    problems = []
+    if missing:
+        problems.append("missing: %s" % ", ".join(missing))
+    if empty:
+        problems.append("empty: %s" % ", ".join(empty))
+    yield Finding("IDS-LOGS", "Security logs are missing or empty",
+                  Status.WARN, "; ".join(problems)
+                  + "\nA freshly rotated log is normal; an unexplained empty "
+                    "auth log is not. Confirm rsyslog is running.",
+                  Severity.MEDIUM,
+                  Remediation("Restore system logging",
+                              manual="systemctl status rsyslog; check "
+                                     "/etc/rsyslog.conf and logrotate. Ship logs "
+                                     "off-box so they survive a compromise."),
+                  reference=REF)
+
+
+@register("IDS-LOGMONITOR", "Log monitoring", CAT, order=40)
 def log_monitoring():
     yield Finding("IDS-LOGMONITOR", "Monitor logs for suspicious activity",
                   Status.INFO,

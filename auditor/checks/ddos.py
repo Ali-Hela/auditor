@@ -2,7 +2,7 @@
 
 from ..core.model import Finding, Remediation, Severity, Status
 from ..core.registry import register
-from ..core.util import run, which
+from ..core.util import apache_modules, parse_kv, read_file, which
 
 CAT = "DDoS & Network"
 REF = "cPanel checklist #9: DDoS protection and network security"
@@ -24,8 +24,13 @@ def imunify():
 
 @register("DDOS-MODEVASIVE", "mod_evasive rate limiting", CAT, order=20)
 def mod_evasive():
-    rc, out, _ = run("httpd -M 2>/dev/null || apachectl -M 2>/dev/null")
-    if "evasive" in out:
+    mods = apache_modules()
+    if mods is None:
+        yield Finding("DDOS-MODEVASIVE", "mod_evasive (Apache not detected)",
+                      Status.SKIP, "Could not query loaded Apache modules.",
+                      reference=REF)
+        return
+    if any("evasive" in m for m in mods):
         yield Finding("DDOS-MODEVASIVE", "mod_evasive is loaded", Status.OK,
                       reference=REF)
     else:
@@ -35,6 +40,41 @@ def mod_evasive():
                       Remediation("Install mod_evasive",
                                   manual="EasyApache 4 > install "
                                          "ea-apache24-mod_evasive."),
+                      reference=REF)
+
+
+@register("DDOS-CSF-FLOOD", "CSF connection flood protection", CAT, order=25)
+def csf_flood():
+    """CSF ships SYNFLOOD and CONNLIMIT off by default; both blunt cheap floods."""
+    conf = read_file("/etc/csf/csf.conf")
+    if conf is None:
+        yield Finding("DDOS-CSF-FLOOD", "CSF flood protection (CSF not installed)",
+                      Status.SKIP, reference=REF)
+        return
+    cfg = parse_kv(conf)
+    off = []
+    if cfg.get("SYNFLOOD", "0") == "0":
+        off.append("SYNFLOOD")
+    if not cfg.get("CONNLIMIT", "").strip():
+        off.append("CONNLIMIT")
+    if not cfg.get("PORTFLOOD", "").strip():
+        off.append("PORTFLOOD")
+    if not off:
+        yield Finding("DDOS-CSF-FLOOD", "CSF flood protection is configured",
+                      Status.OK, reference=REF)
+    else:
+        yield Finding("DDOS-CSF-FLOOD",
+                      "CSF flood protection is unconfigured: %s" % ", ".join(off),
+                      Status.INFO,
+                      "These are off by default. SYNFLOOD costs CPU under load "
+                      "and CONNLIMIT can affect legitimate bursty clients, so "
+                      "tune them rather than switching everything on.",
+                      Severity.LOW,
+                      Remediation("Tune CSF flood settings",
+                                  manual="Set CONNLIMIT (e.g. '80;20,443;20') "
+                                         "and PORTFLOOD in /etc/csf/csf.conf, "
+                                         "then 'csf -r'. Enable SYNFLOOD only "
+                                         "while under attack."),
                       reference=REF)
 
 

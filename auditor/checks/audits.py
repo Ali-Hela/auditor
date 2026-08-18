@@ -29,8 +29,9 @@ def schedule():
                   "Run this auditor (daily/weekly) and a manual review each "
                   "quarter; track trends in the log.", Severity.INFO,
                   Remediation("Automate periodic audits",
-                              manual="Add a cron job for ./auditor and review "
-                                     "auditor.log."),
+                              manual="Add a cron job for ./auditor.sh --quiet "
+                                     "--json /var/log/auditor.json and alert on "
+                                     "a non-zero exit code."),
                   reference=REF)
 
 

@@ -2,3 +2,15 @@
 __pycache__/
 *.pyc
 error_log
+
+# Build artefacts
+build/
+dist/
+*.egg-info/
+
+# Backups the --fix engine writes next to the files it edits
+*.auditor-bak-*
+
+# Local tooling
+.claude/
+.venv/

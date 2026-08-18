@@ -2,14 +2,22 @@
 
 from ..core.model import Finding, Remediation, Severity, Status
 from ..core.registry import register
-from ..core.util import is_cpanel, parse_kv, read_file, which
+from ..core.util import (is_cpanel, parse_kv, read_file, run, set_config_line,
+                         which)
 
 CAT = "Updates & Patching"
 REF = "cPanel checklist #8: Keep software and plugins updated"
 
+CPUPDATE_CONF = "/etc/cpupdate.conf"
+
 
 def _cpupdate():
-    return parse_kv(read_file("/etc/cpupdate.conf"))
+    return parse_kv(read_file(CPUPDATE_CONF))
+
+
+def _set_cpupdate(key, value):
+    """Fix helper: cpupdate.conf keys are often absent rather than set."""
+    return lambda: set_config_line(CPUPDATE_CONF, key, value)
 
 
 @register("UPD-CPANEL-AUTO", "Automatic cPanel updates", CAT, order=10)
@@ -30,19 +38,19 @@ def cpanel_auto():
                       Severity.MEDIUM,
                       Remediation(
                           "Set cPanel updates to automatic (daily)",
-                          commands=["sed -ri 's/^UPDATES=.*/UPDATES=daily/' "
-                                    "/etc/cpupdate.conf"],
+                          func=_set_cpupdate("UPDATES", "daily"),
+                          backup_files=[CPUPDATE_CONF],
                           manual="WHM > Update Preferences > Automatic."),
                       reference=REF)
     else:
-        yield Finding("UPD-CPANEL-AUTO", "cPanel updates are disabled (never)",
+        yield Finding("UPD-CPANEL-AUTO", "cPanel updates are disabled",
                       Status.FAIL,
                       "UPDATES=%s; the server will not receive cPanel patches."
                       % (mode or "unset"), Severity.HIGH,
                       Remediation(
                           "Enable automatic cPanel updates",
-                          commands=["sed -ri 's/^UPDATES=.*/UPDATES=daily/' "
-                                    "/etc/cpupdate.conf"],
+                          func=_set_cpupdate("UPDATES", "daily"),
+                          backup_files=[CPUPDATE_CONF],
                           manual="WHM > Update Preferences > Automatic."),
                       reference=REF)
 
@@ -58,12 +66,15 @@ def cpanel_version():
     detail = "Installed: %s" % (version or "unknown")
     if tier:
         detail += "  ·  Update tier: %s" % tier
-    yield Finding("UPD-CPANEL-VERSION", "Review cPanel version information",
+    yield Finding("UPD-CPANEL-VERSION", "cPanel version information",
                   Status.INFO, detail, Severity.INFO,
+                  # No automated fix: upcp restarts services and can take
+                  # tens of minutes, which is not something to trigger from an
+                  # audit prompt.
                   Remediation("Keep cPanel current",
-                              commands=["/usr/local/cpanel/scripts/upcp --force"],
-                              manual="WHM > cPanel Version Information / "
-                                     "Upgrade to Latest Version."),
+                              manual="WHM > cPanel Version Information, or run "
+                                     "/usr/local/cpanel/scripts/upcp during a "
+                                     "maintenance window."),
                   reference=REF)
 
 
@@ -80,38 +91,75 @@ def rpm_updates():
                           Severity.MEDIUM,
                           Remediation(
                               "Enable automatic RPM updates",
-                              commands=["sed -ri 's/^RPMUP=.*/RPMUP=daily/' "
-                                        "/etc/cpupdate.conf"],
+                              func=_set_cpupdate("RPMUP", "daily"),
+                              backup_files=[CPUPDATE_CONF],
                               manual="WHM > Update Preferences > "
                                      "Operating System Package Updates."),
                           reference=REF)
         return
-    # Non-cPanel: count pending updates
+    # Non-cPanel: report what is actually pending.
     mgr = "dnf" if which("dnf") else "yum" if which("yum") else None
     if not mgr:
         yield Finding("UPD-RPM", "Package updates (no dnf/yum)", Status.SKIP,
                       reference=REF)
         return
-    yield Finding("UPD-RPM", "Check for pending OS package updates", Status.INFO,
-                  "Run '%s -y update' regularly or enable dnf-automatic." % mgr,
-                  Severity.LOW,
-                  Remediation("Apply OS updates",
-                              commands=["%s -y update" % mgr]),
-                  reference=REF)
+    rc, out, _ = run([mgr, "-q", "check-update"], timeout=180)
+    # check-update exits 100 when updates are available, 0 when none are.
+    if rc not in (0, 100):
+        yield Finding("UPD-RPM", "Could not check for package updates",
+                      Status.WARN, "%s check-update failed." % mgr,
+                      Severity.LOW, reference=REF)
+        return
+    pending = [l for l in out.splitlines()
+               if l.strip() and not l.startswith(("Last metadata", "Obsoleting"))]
+    if rc == 0 or not pending:
+        yield Finding("UPD-RPM", "No pending OS package updates", Status.OK,
+                      reference=REF)
+    else:
+        yield Finding("UPD-RPM", "%d OS package update(s) pending" % len(pending),
+                      Status.WARN,
+                      "Includes security patches. Apply during a maintenance "
+                      "window.", Severity.MEDIUM,
+                      Remediation("Apply OS updates",
+                                  commands=["%s -y update" % mgr],
+                                  risk="upgrades packages and may restart "
+                                       "services",
+                                  manual="Run '%s -y update' when you can "
+                                         "restart services." % mgr),
+                      reference=REF)
 
 
 @register("UPD-CMS", "CMS & plugin updates", CAT, order=30)
 def cms_updates():
-    wp_toolkit = which("wp-toolkit")
-    if wp_toolkit:
+    if not which("wp-toolkit"):
+        yield Finding("UPD-CMS", "WordPress Toolkit is not installed",
+                      Status.INFO,
+                      "Without it, CMS patching is manual. Patch WordPress/"
+                      "Joomla/Drupal core, plugins and themes, and remove "
+                      "unused extensions.", Severity.LOW,
+                      Remediation("Install WP Toolkit or patch manually",
+                                  manual="WHM > cPanel > WordPress Toolkit."),
+                      reference=REF)
+        return
+    rc, out, _ = run(["wp-toolkit", "--list", "-format", "json"], timeout=120)
+    if rc != 0:
         yield Finding("UPD-CMS", "WordPress Toolkit is available", Status.OK,
-                      "Use it to keep WordPress core, plugins and themes patched.",
+                      "Could not enumerate installations; review it in WHM.",
+                      reference=REF)
+        return
+    outdated = out.lower().count('"update_available": true')
+    if outdated:
+        yield Finding("UPD-CMS",
+                      "%d WordPress installation(s) have updates pending"
+                      % outdated, Status.WARN,
+                      "Outdated plugins are the most common route into a "
+                      "shared host.", Severity.MEDIUM,
+                      Remediation("Update WordPress installations",
+                                  manual="WHM/cPanel > WordPress Toolkit > "
+                                         "Updates; enable automatic updates for "
+                                         "core and plugins."),
                       reference=REF)
     else:
-        yield Finding("UPD-CMS", "Keep CMS applications updated", Status.INFO,
-                      "Patch WordPress/Joomla/Drupal core, plugins and themes; "
-                      "remove unused plugins/themes.", Severity.INFO,
-                      Remediation("Manage CMS updates",
-                                  manual="Install WP Toolkit (WHM) or update CMS "
-                                         "apps and remove unused extensions."),
+        yield Finding("UPD-CMS",
+                      "WordPress Toolkit reports no pending updates", Status.OK,
                       reference=REF)

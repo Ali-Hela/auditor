@@ -1,10 +1,12 @@
-"""Terminal + log file reporting."""
+"""Terminal, log file and JSON reporting."""
 
 import datetime
+import json
+import os
 import sys
 from typing import Dict, List, Optional
 
-from .model import Finding, Severity, Status
+from .model import Finding, Status
 
 ANSI = {
     "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
@@ -39,14 +41,30 @@ def _encoding_supports_glyphs():
         return False
 
 
+def color_enabled(explicit: Optional[bool] = None) -> bool:
+    """Whether to emit ANSI colour.
+
+    ``NO_COLOR`` (https://no-color.org/) wins over auto-detection but not over
+    an explicit ``--color``/``--no-color``.
+    """
+    if explicit is not None:
+        return explicit
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+    return sys.stdout.isatty()
+
+
 class Reporter:
     """Streams findings to the terminal (colorized) and buffers a plain log."""
 
-    def __init__(self, log_path: Optional[str] = None, use_color: Optional[bool] = None,
-                 quiet: bool = False):
+    def __init__(self, log_path: Optional[str] = None,
+                 use_color: Optional[bool] = None, quiet: bool = False,
+                 silent: bool = False, log_append: bool = True):
         self.log_path = log_path
         self.quiet = quiet
-        self.use_color = sys.stdout.isatty() if use_color is None else use_color
+        self.silent = silent
+        self.log_append = log_append
+        self.use_color = False if silent else color_enabled(use_color)
         self.log_lines: List[str] = []
         self.findings: List[Finding] = []
         self.counts: Dict[Status, int] = {s: 0 for s in Status}
@@ -70,7 +88,7 @@ class Reporter:
 
     def _out(self, term: str = "", plain: Optional[str] = None, log: bool = True,
              screen: bool = True):
-        if screen:
+        if screen and not self.silent:
             print(term)
         if log:
             self.log_lines.append(term if plain is None else plain)
@@ -121,16 +139,25 @@ class Reporter:
                 self._out(self._c(d_plain, "dim"), d_plain, screen=scr)
         if f.remediation and f.status in (Status.FAIL, Status.WARN):
             rem = f.remediation
-            tag = "fix" if rem.automatable else "manual"
+            tag = "risky fix" if rem.risky else "fix" if rem.automatable else "manual"
             r_plain = "      %s (%s) %s" % (self.arrow, tag, rem.summary)
             self._out(self._c(r_plain, "grey"), r_plain, screen=scr)
+
+    def revise(self, f: Finding, new_status: Status):
+        """Record that a remediation changed a finding's status."""
+        if new_status == f.status:
+            return
+        self.counts[f.status] -= 1
+        self.counts[new_status] += 1
+        f.remediated_from = f.status
+        f.status = new_status
 
     def note(self, text: str):
         self._out(self._c("      %s" % text, "grey"), "      %s" % text)
 
     def prompt(self, question: str) -> str:
-        """Interactive y/n/a/q prompt. Returns a single lowercase char."""
-        msg = self._c("      ? %s [y]es/[n]o/[A]ll-skip/[q]uit: " % question,
+        """Interactive prompt. Returns a single lowercase char."""
+        msg = self._c("      ? %s [y]es/[n]o/[s]kip-all/[q]uit: " % question,
                       "yellow", "bold")
         try:
             ans = input(msg).strip().lower()
@@ -139,6 +166,11 @@ class Reporter:
         return (ans[:1] or "n")
 
     # -- summary ---------------------------------------------------------
+    def score(self) -> int:
+        ok = self.counts[Status.OK]
+        scored = ok + self.counts[Status.FAIL] + self.counts[Status.WARN]
+        return int(round(100 * ok / scored)) if scored else 100
+
     def summary(self) -> int:
         ok = self.counts[Status.OK]
         fail = self.counts[Status.FAIL]
@@ -146,7 +178,7 @@ class Reporter:
         info = self.counts[Status.INFO]
         skip = self.counts[Status.SKIP]
         scored = ok + fail + warn
-        score = int(round(100 * ok / scored)) if scored else 100
+        score = self.score()
 
         bar = "=" * 64
         self._out()
@@ -181,18 +213,47 @@ class Reporter:
         self._out(self._c(bar, "cyan"), bar)
         return fail
 
+    # -- outputs ---------------------------------------------------------
     def write_log(self, version: str, host: str):
         if not self.log_path:
             return
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         header = [
+            "=" * 64,
             "Auditor v%s security audit log" % version,
             "Host: %s" % host,
             "Generated: %s" % ts,
             "",
         ]
+        mode = "a" if self.log_append else "w"
         try:
-            with open(self.log_path, "w", encoding="utf-8") as fh:
+            with open(self.log_path, mode, encoding="utf-8") as fh:
                 fh.write("\n".join(header + self.log_lines) + "\n")
         except OSError as e:
-            print("  (could not write log to %s: %s)" % (self.log_path, e))
+            print("  (could not write log to %s: %s)" % (self.log_path, e),
+                  file=sys.stderr)
+
+    def as_dict(self, version: str, host: str) -> dict:
+        return {
+            "tool": "auditor",
+            "version": version,
+            "host": host,
+            "generated": datetime.datetime.now().isoformat(timespec="seconds"),
+            "score": self.score(),
+            "counts": {s.value: self.counts[s] for s in Status},
+            "findings": [f.as_dict() for f in self.findings],
+        }
+
+    def write_json(self, path: str, version: str, host: str):
+        """Write the machine-readable report. ``-`` means stdout."""
+        payload = json.dumps(self.as_dict(version, host), indent=2,
+                             sort_keys=False)
+        if path == "-":
+            print(payload)
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(payload + "\n")
+        except OSError as e:
+            print("  (could not write JSON to %s: %s)" % (path, e),
+                  file=sys.stderr)

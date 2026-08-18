@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auditor"
+version = "2.1.0"
+description = "cPanel/WHM server security audit and guided remediation"
+readme = "README.md"
+requires-python = ">=3.6"
+# No runtime dependencies, on purpose: the tool has to run on the stock
+# python3 of a cPanel host without pip touching the system environment.
+dependencies = []
+authors = [{ name = "Ali-Hela" }]
+keywords = ["cpanel", "whm", "security", "audit", "hardening"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Systems Administration",
+]
+
+[project.scripts]
+auditor = "auditor.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/Ali-Hela/auditor"
+
+[tool.setuptools.packages.find]
+include = ["auditor*"]
+
+[tool.pyflakes]
+# Nothing configurable here; run `python3 -m pyflakes auditor tests`.

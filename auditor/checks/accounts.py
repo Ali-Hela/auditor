@@ -4,14 +4,16 @@ import os
 
 from ..core.model import Finding, Remediation, Severity, Status
 from ..core.registry import register
-from ..core.util import cpanel_users, is_cpanel, read_file, run, which
+from ..core.util import (cpanel_config, cpanel_users, is_cpanel, mount_options,
+                         read_file, run, truthy, which)
 
 CAT = "Accounts & Permissions"
 REF = "cPanel checklist #4: Secure user accounts and permissions"
 
 # Shells that do NOT give a real interactive shell.
 SAFE_SHELLS = {"/usr/local/cpanel/bin/jailshell", "/usr/local/cpanel/bin/noshell",
-               "/sbin/nologin", "/usr/sbin/nologin", "/bin/false"}
+               "/sbin/nologin", "/usr/sbin/nologin", "/bin/false",
+               "/usr/bin/false"}
 
 
 @register("ACC-CLOUDLINUX", "CloudLinux", CAT, order=10)
@@ -38,8 +40,12 @@ def cagefs():
                       "cagefsctl not present.", reference=REF)
         return
     rc, out, _ = run(["cagefsctl", "--cagefs-status"])
-    enabled = rc == 0 and "enabled" in out.lower()
-    if enabled:
+    if rc != 0:
+        yield Finding("ACC-CAGEFS", "CageFS status could not be determined",
+                      Status.WARN, "cagefsctl --cagefs-status failed.",
+                      Severity.LOW, reference=REF)
+        return
+    if "enabled" in out.lower() and "disabled" not in out.lower():
         yield Finding("ACC-CAGEFS", "CageFS is enabled", Status.OK, reference=REF)
     else:
         yield Finding("ACC-CAGEFS", "CageFS is not enabled", Status.FAIL,
@@ -78,23 +84,121 @@ def shell_access():
     else:
         yield Finding("ACC-SHELL",
                       "%d account(s) have full shell access" % len(shelled),
-                      Status.WARN, "\n".join(shelled), Severity.MEDIUM,
+                      Status.WARN, "\n".join(sorted(shelled)), Severity.MEDIUM,
                       Remediation("Demote to jailed shell (jailshell)",
                                   manual="WHM > Account Functions > Manage Shell "
                                          "Access; set non-admins to Jailed Shell."),
                       reference=REF)
 
 
-@register("ACC-FILEPERM", "File permission hardening", CAT, order=40)
-def file_perms():
-    yield Finding("ACC-FILEPERM", "Restrict file permissions (FileProtect)",
-                  Status.INFO,
-                  "Run FileProtect and keep secure permissions on user "
-                  "directories and config files.", Severity.INFO,
-                  Remediation("Apply FileProtect",
-                              commands=["/scripts/enablefileprotect"]
-                              if os.path.isfile("/scripts/enablefileprotect")
-                              else [],
-                              manual="WHM > Security Center > Configure Security "
-                                     "Policies / run /scripts/enablefileprotect."),
-                  reference=REF)
+@register("ACC-FILEPROTECT", "FileProtect", CAT, order=40)
+def file_protect():
+    """cPanel's FileProtect stops one account reading another's document root."""
+    if not is_cpanel():
+        yield Finding("ACC-FILEPROTECT", "FileProtect (cPanel only)", Status.SKIP,
+                      reference=REF)
+        return
+    cfg = cpanel_config()
+    value = cfg.get("file_protect")
+    script = "/usr/local/cpanel/scripts/enablefileprotect"
+    if value is None:
+        yield Finding("ACC-FILEPROTECT", "FileProtect status is unknown",
+                      Status.WARN,
+                      "file_protect is not set in /var/cpanel/cpanel.config.",
+                      Severity.LOW,
+                      Remediation("Enable FileProtect",
+                                  manual="WHM > Tweak Settings > "
+                                         "Security > File Protect."),
+                      reference=REF)
+    elif truthy(value):
+        yield Finding("ACC-FILEPROTECT", "FileProtect is enabled", Status.OK,
+                      reference=REF)
+    else:
+        yield Finding("ACC-FILEPROTECT", "FileProtect is disabled", Status.FAIL,
+                      "Without FileProtect, one account's PHP can read another "
+                      "account's document root.", Severity.HIGH,
+                      Remediation(
+                          "Enable FileProtect",
+                          commands=(["whmapi1 set_tweaksetting key=file_protect "
+                                     "value=1", script]
+                                    if os.path.isfile(script)
+                                    else ["whmapi1 set_tweaksetting "
+                                          "key=file_protect value=1"]),
+                          manual="WHM > Tweak Settings > Security > File "
+                                 "Protect, then run %s." % script),
+                      reference=REF)
+
+
+@register("ACC-TMP-NOEXEC", "/tmp mount hardening", CAT, order=50)
+def tmp_noexec():
+    """A world-writable /tmp that permits execution is a standard foothold."""
+    opts = mount_options("/tmp")
+    if opts is None:
+        yield Finding("ACC-TMP-NOEXEC", "/tmp is not a separate filesystem",
+                      Status.WARN,
+                      "cPanel's securetmp creates a loopback /tmp mounted "
+                      "noexec,nosuid so uploaded scripts cannot be executed "
+                      "from it.", Severity.MEDIUM,
+                      Remediation(
+                          "Create a hardened /tmp with securetmp",
+                          manual="Run /usr/local/cpanel/scripts/securetmp "
+                                 "(it creates /usr/tmpDSK and remounts /tmp "
+                                 "noexec,nosuid). Stop services using /tmp "
+                                 "first."),
+                      reference=REF)
+        return
+    missing = [o for o in ("noexec", "nosuid") if o not in opts]
+    if not missing:
+        yield Finding("ACC-TMP-NOEXEC", "/tmp is mounted noexec,nosuid",
+                      Status.OK, ",".join(opts), reference=REF)
+    else:
+        yield Finding("ACC-TMP-NOEXEC",
+                      "/tmp is missing mount option(s): %s" % ", ".join(missing),
+                      Status.FAIL,
+                      "Anyone who can write to /tmp can run binaries from it.\n"
+                      "Current: %s" % ",".join(opts), Severity.HIGH,
+                      Remediation(
+                          "Remount /tmp noexec,nosuid",
+                          manual="Add noexec,nosuid,nodev to the /tmp line in "
+                                 "/etc/fstab, then 'mount -o remount /tmp'. "
+                                 "Check no application needs to execute from "
+                                 "/tmp first."),
+                      reference=REF)
+
+
+@register("ACC-COMPILERS", "Compiler access", CAT, order=60)
+def compilers():
+    """Unprivileged access to a compiler lets an attacker build local exploits."""
+    if not is_cpanel():
+        yield Finding("ACC-COMPILERS", "Compiler access (cPanel only)",
+                      Status.SKIP, reference=REF)
+        return
+    exposed = []
+    for name in ("gcc", "cc", "g++", "c++"):
+        path = which(name)
+        if not path:
+            continue
+        try:
+            mode = os.stat(path).st_mode & 0o777
+        except OSError:
+            continue
+        # cPanel's 'compilers off' chmods these to 0700 (root-only).
+        if mode & 0o055:
+            exposed.append("%s (%o)" % (path, mode))
+    if not exposed:
+        yield Finding("ACC-COMPILERS",
+                      "Compilers are restricted to root (or not installed)",
+                      Status.OK, reference=REF)
+    else:
+        yield Finding("ACC-COMPILERS", "Compilers are usable by every account",
+                      Status.WARN,
+                      "Shared-hosting accounts can compile local privilege "
+                      "escalation exploits.\n" + "\n".join(exposed),
+                      Severity.MEDIUM,
+                      Remediation(
+                          "Restrict compilers to root",
+                          commands=["/usr/local/cpanel/scripts/compilers off"],
+                          manual="WHM > Security Center > Compiler Access > "
+                                 "Disable Compilers. Re-enable temporarily if "
+                                 "you need to build software."),
+                      reference=REF)

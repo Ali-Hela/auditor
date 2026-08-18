@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.8 is the oldest the GitHub runners still provide. The tool targets
+        # 3.6 (AlmaLinux/CloudLinux 8), so the syntax floor is enforced
+        # separately by the compile job below.
+        python-version: ["3.8", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Check the CLI starts and lists checks
+        run: python -m auditor --list
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pyflakes
+      - run: python -m pyflakes auditor tests
