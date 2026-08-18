@@ -152,6 +152,17 @@ def cpanel_config() -> Dict[str, str]:
     return parse_kv(read_file("/var/cpanel/cpanel.config"))
 
 
+@lru_cache(maxsize=1)
+def exim_localopts() -> Dict[str, str]:
+    """Parsed /etc/exim.conf.localopts (WHM's Exim Configuration Manager).
+
+    Empty when the file is absent or unreadable. Note that a bare key with no
+    ``=`` means "unset, use the default" and is deliberately absent from the
+    result rather than present-and-empty.
+    """
+    return parse_kv(read_file("/etc/exim.conf.localopts"))
+
+
 def service_active(name: str) -> Optional[bool]:
     """True/False if systemctl knows the service, None if it cannot be queried."""
     if not which("systemctl"):
@@ -542,5 +553,5 @@ def clear_caches():
     """
     for fn in (read_file, is_cpanel, cpanel_config, _whmapi1_cached,
                listening_ports, sshd_config, apache_modules, ea_php_inis,
-               cpanel_docroots, apache_global_indexing):
+               cpanel_docroots, apache_global_indexing, exim_localopts):
         fn.cache_clear()

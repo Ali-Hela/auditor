@@ -9,6 +9,7 @@ _MODULES = [
     "accounts",
     "backups",
     "database_php",
+    "mail",
     "intrusion",
     "updates",
     "ddos",

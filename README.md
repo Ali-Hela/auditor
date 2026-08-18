@@ -18,7 +18,8 @@ applying the recommended fixes.
   as applied if the check stops failing.
 - **Backups before edits**, and **risk gating** — fixes that can lock you out
   of the server are withheld unless you pass `--dangerous`, and always prompt.
-- **52 checks across 10 categories**, each mapped to a checklist section.
+- **61 checks across 11 categories**, mapped to the cPanel checklist plus
+  a mail-security section of its own.
 - **Machine-readable output** with `--json`, for cron and monitoring.
 - **Colorized terminal output** (`✔ ✘ ▲ 🛈`) plus an appended log file.
 - **Modular** — adding a check is one decorated function; no wiring required.
@@ -114,6 +115,7 @@ reporting a green check against a daemon still running the old config.
 | 4 | Accounts & Permissions | 7 | CloudLinux, CageFS, shell access, FileProtect, directory indexing on account sites, `/tmp` noexec/nosuid, compiler access |
 | 5 | Backups & Recovery | 4 | backups enabled, incremental, remote destination, restore testing |
 | 6 | Database & PHP | 8 | MySQL exposure, SHOW DATABASES, passwordless DB users, end-of-life PHP, `expose_php`, `allow_url_fopen`, `allow_url_include`, dangerous functions |
+| – | Mail & Anti-Spam | 9 | SMTP restrictions, outbound rate limit, `nobody` mail, outbound spam action, SPF/DKIM defaults, encrypted SMTP auth, mail TLS strength, Exim abuse ACLs, POP-before-SMTP |
 | 7 | Intrusion Detection & Logs | 4 | brute-force detection, security notifications, security logs present, log monitoring |
 | 8 | Updates & Patching | 4 | auto cPanel updates, version & tier, pending OS packages, CMS/plugin updates |
 | 9 | DDoS & Network | 4 | Imunify360, mod_evasive, CSF flood settings, edge WAF/CDN |
