@@ -14,6 +14,7 @@ from .core.model import Finding, Severity, Status
 from .core.registry import all_checks, categories
 from .core.remediate import Remediator
 from .core.report import Reporter
+from .checks import baseline
 from .core.util import is_cpanel
 
 EXIT_OK = 0
@@ -52,6 +53,11 @@ def build_parser():
     p.add_argument("--json", metavar="PATH", default=None,
                    help="write a machine-readable report to PATH "
                         "('-' for stdout, which silences the normal report)")
+    p.add_argument("--baseline", metavar="PATH", default=None,
+                   help="our server standard (default: baseline.conf next to "
+                        "auditor.sh)")
+    p.add_argument("--no-baseline", action="store_true",
+                   help="run only the built-in checks")
     p.add_argument("--list", action="store_true",
                    help="list all checks and exit")
     p.add_argument("--list-categories", action="store_true",
@@ -84,16 +90,25 @@ def select_checks(args):
 
 def do_list():
     cur = None
+    width = max([18] + [len(c.id) for c in all_checks()])
     for c in all_checks():
         if c.category != cur:
             cur = c.category
             print("\n%s" % cur)
-        print("  %-18s %s" % (c.id, c.title))
+        print("  %-*s %s" % (width, c.id, c.title))
 
 
 def main(argv=None):
     checks.load_all()
     args = build_parser().parse_args(argv)
+
+    baseline_path = args.baseline or baseline.DEFAULT_PATH
+    if args.baseline and not os.path.isfile(args.baseline):
+        print("baseline file not found: %s" % args.baseline, file=sys.stderr)
+        return EXIT_USAGE
+    baseline_rules = 0 if args.no_baseline else baseline.load(baseline_path)
+    if args.no_baseline:
+        baseline.load(os.devnull)  # drop any rules from an earlier call
 
     if args.list:
         do_list()
@@ -133,6 +148,8 @@ def main(argv=None):
 
     host = socket.gethostname()
     reporter.banner(__version__, host)
+    if baseline_rules:
+        reporter.note("Baseline: %s (%d rules)" % (baseline_path, baseline_rules))
     if not is_cpanel():
         reporter.note("cPanel not detected - cPanel-specific checks will be "
                       "skipped.")

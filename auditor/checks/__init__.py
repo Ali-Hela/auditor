@@ -14,6 +14,7 @@ _MODULES = [
     "updates",
     "ddos",
     "audits",
+    "standards",
 ]
 
 _loaded = False

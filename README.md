@@ -54,6 +54,11 @@ sudo ./auditor.sh --quiet
 sudo ./auditor.sh --category "SSL"
 sudo ./auditor.sh --only LOGIN-2FA,FW-CSF
 
+# Our own standard only, or a different baseline file, or none
+sudo ./auditor.sh --category baseline --category "our standards"
+sudo ./auditor.sh --baseline /etc/auditor/reseller.conf
+sudo ./auditor.sh --no-baseline
+
 # Machine-readable report
 sudo ./auditor.sh --json /var/log/auditor.json
 sudo ./auditor.sh --json -            # to stdout, silences the normal report
@@ -120,8 +125,50 @@ reporting a green check against a daemon still running the old config.
 | 8 | Updates & Patching | 4 | auto cPanel updates, version & tier, pending OS packages, CMS/plugin updates |
 | 9 | DDoS & Network | 4 | Imunify360, mod_evasive, CSF flood settings, edge WAF/CDN |
 | 10 | Audits & Best Practices | 4 | Security Advisor, periodic audits, staff awareness, security advisories |
+| – | Our Standards | 7 | root login email alert, hostname is a FQDN that resolves here, reverse DNS, hostname certificate on WHM, extra UID 0 users, empty passwords, suspicious cron jobs |
+| – | Baseline: … | – | one check per line of `baseline.conf` (see below) |
 
 Run `./auditor.sh --list` for the full per-check breakdown with IDs.
+
+## Our baseline (`baseline.conf`)
+
+The built-in checks cover the generic cPanel checklist. **`baseline.conf`**
+holds what is specific to our servers (timezone, database engine, required
+plugins, settings stricter than the checklist), with one line per setting.
+Adding a standard is a one-line edit, not new code.
+
+```
+[SSH]                                          ← report category "Baseline: SSH"
+sshd PermitRootLogin no | Root cannot log in   ← rule, optional label after " | "
+warn:sshd MaxAuthTries <=4                     ← "warn:" = mismatch is a WARN, not a FAIL
+set ROOT_ALERT_EMAIL ops@example.com           ← a setting read by other checks
+```
+
+Each line becomes a normal check with a `BL-…` ID, so `--only`, `--json`,
+`--fix`, backups, verification and risk gating all apply. Values compare
+case-insensitively, `on/yes/true/1` and `off/no/false/0` are equivalent, and
+numbers can use `<=N`, `>=N`, `<N`, `>N` (ranges are never auto-fixed). A
+malformed line shows up as a `BL-CONFIG` warning instead of being silently
+ignored.
+
+| Rule | Checks | Fix |
+|---|---|---|
+| `sshd KEY VALUE` | Effective sshd setting (`sshd -T`; OpenSSH defaults when unavailable) | edits the file(s) that define it, reloads behind `sshd -t`; risky |
+| `tweak KEY VALUE` | WHM Tweak Setting | `whmapi1 set_tweaksetting` |
+| `whmapi FUNCTION FIELD VALUE` | Field under `data` of a read-only `whmapi1` call (dotted paths allowed) | only for calls in `WHMAPI_FIXES` |
+| `service NAME [active\|inactive\|enabled\|disabled]` | systemd unit state (default `active`) | `systemctl` |
+| `file_kv FILE KEY VALUE` | `KEY=V`, `KEY = "V"` or `KEY V` in a file | keeps the file's format and quotes; files cPanel regenerates get WHM instructions instead; `csf.conf` is risky and reloads CSF |
+| `php_ini KEY VALUE` | Every EA-PHP `php.ini` | edits each wrong file, restarts PHP-FPM and Apache |
+| `timezone ZONE` | System timezone | `timedatectl` |
+| `package NAME [installed\|absent]` | RPM/DEB package | `dnf`/`yum` |
+| `apache_module NAME` | Module loaded (`evasive` matches `evasive20_module`) | manual (EasyApache 4) |
+| `os ID` | `ID` in `/etc/os-release` (`cloudlinux`, `almalinux`…) | manual |
+| `db_engine mysql\|mariadb` | Database server type | manual |
+| `exists PATH...` | Any of the paths exists | manual |
+| `command NAME` | Command is in `PATH` | manual |
+
+New rule types live in [`auditor/checks/baseline.py`](auditor/checks/baseline.py):
+one function returning an `Outcome`, plus an entry in `RULES`.
 
 ### Statuses
 
@@ -186,6 +233,9 @@ auditor/
   checks/                  # one module per checklist section
     login.py firewall.py ssl.py accounts.py backups.py
     database_php.py intrusion.py updates.py ddos.py audits.py
+    standards.py           # our own checks that need logic
+    baseline.py            # loads baseline.conf, one check per line
+baseline.conf              # our server standard
 tests/                     # unittest, no dependencies
 ```
 
