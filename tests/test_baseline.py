@@ -194,6 +194,61 @@ class TestSshdSet(TempDir):
                          ["Port 22", "PermitRootLogin no"])
 
 
+class TestApacheIndexing(TempDir):
+    def outcome(self, state, want="off"):
+        httpd = self.write("httpd.conf", "")
+        with mock.patch.object(baseline, "HTTPD_CONF", httpd), \
+                mock.patch.object(baseline, "apache_global_indexing",
+                                  return_value=state):
+            return baseline.rule_apache_indexing([want])
+
+    def test_states(self):
+        self.assertTrue(self.outcome(False).ok)
+        on = self.outcome(True)
+        self.assertFalse(on.ok)
+        self.assertTrue(on.remediation.risky)
+        self.assertFalse(self.outcome(None).ok)  # not explicitly disabled
+        self.assertTrue(self.outcome(True, "on").ok)
+
+    def test_no_cpanel_apache_skips(self):
+        with mock.patch.object(baseline, "HTTPD_CONF", "/nonexistent"):
+            self.assertIsNone(baseline.rule_apache_indexing(["off"]).ok)
+
+    def test_fix_is_seen_by_the_real_parser(self):
+        """The block we write must be one apache_global_indexing() reads as off."""
+        from auditor.core import util
+        httpd = self.write("httpd.conf", '<Directory "/">\n'
+                           "    Options Indexes FollowSymLinks\n</Directory>\n")
+        include = os.path.join(self.dir, "pre_virtualhost_global.conf")
+
+        def fake_read(path):
+            return read_file(httpd if path == baseline.HTTPD_CONF else path)
+
+        def fake_glob(pattern):
+            found = "includes" in pattern and os.path.exists(include)
+            return [include] if found else []
+
+        with mock.patch.object(baseline, "PRE_VHOST_INCLUDE", include), \
+                mock.patch.object(baseline, "_apache_configtest", return_value=True), \
+                mock.patch.object(util, "read_file", side_effect=fake_read), \
+                mock.patch.object(util.glob, "glob", side_effect=fake_glob):
+            try:
+                util.apache_global_indexing.cache_clear()
+                self.assertTrue(util.apache_global_indexing())
+                self.assertTrue(baseline._disable_global_indexing())
+                util.apache_global_indexing.cache_clear()
+                self.assertFalse(util.apache_global_indexing())
+            finally:
+                util.apache_global_indexing.cache_clear()
+
+    def test_failed_configtest_restores_file(self):
+        include = self.write("pre.conf", "# existing\n")
+        with mock.patch.object(baseline, "PRE_VHOST_INCLUDE", include), \
+                mock.patch.object(baseline, "_apache_configtest", return_value=False):
+            self.assertFalse(baseline._disable_global_indexing())
+        self.assertEqual(read_file(include), "# existing\n")
+
+
 class TestWarnModifierAndFixFlow(TempDir):
     def test_warn_modifier_and_verified_fix(self):
         conf = self.write("app.conf", 'LF_DAEMON = "0"\nTESTING = "1"\n')

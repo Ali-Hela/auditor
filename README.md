@@ -162,6 +162,7 @@ ignored.
 | `timezone ZONE` | System timezone | `timedatectl` |
 | `package NAME [installed\|absent]` | RPM/DEB package | `dnf`/`yum` |
 | `apache_module NAME` | Module loaded (`evasive` matches `evasive20_module`) | manual (EasyApache 4) |
+| `apache_indexing off\|on` | Server-wide `<Directory>` config for `/` or `/home` (httpd.conf + includes) disables/allows listings | adds `Options -Indexes` for `/home` to WHM's Pre VirtualHost Include, rolls back if `httpd -t` fails, restarts Apache; risky |
 | `os ID` | `ID` in `/etc/os-release` (`cloudlinux`, `almalinux`…) | manual |
 | `db_engine mysql\|mariadb` | Database server type | manual |
 | `exists PATH...` | Any of the paths exists | manual |

@@ -27,7 +27,7 @@ import shlex
 
 from ..core.model import Finding, Remediation, Severity, Status
 from ..core.registry import REGISTRY, CheckSpec
-from ..core.util import (apache_modules, cpanel_config, ea_php_inis, is_cpanel,
+from ..core.util import (apache_global_indexing, apache_modules, cpanel_config, ea_php_inis, is_cpanel,
                          php_ini_config, read_file, run, set_config_line,
                          sshd_config, sshd_files, which, whmapi1)
 
@@ -438,6 +438,83 @@ def rule_apache_module(args):
         manual="WHM > Software > EasyApache 4 > Customize > Apache Modules."))
 
 
+HTTPD_CONF = "/etc/apache2/conf/httpd.conf"
+# WHM > Apache Configuration > Include Editor > Pre VirtualHost Include (all
+# versions). cPanel keeps this file across rebuilds, unlike httpd.conf.
+PRE_VHOST_INCLUDE = "/etc/apache2/conf.d/includes/pre_virtualhost_global.conf"
+NO_INDEXES_BLOCK = ('\n# Added by auditor: no directory listings anywhere under /home\n'
+                    '<Directory "/home">\n    Options -Indexes\n</Directory>\n')
+APACHE_RESTART = "/usr/local/cpanel/scripts/restartsrv_httpd"
+
+
+def _apache_configtest():
+    binary = which("httpd") or which("apachectl") or "/usr/sbin/httpd"
+    return run([binary, "-t"])[0] == 0
+
+
+def _disable_global_indexing():
+    """Add the /home block to the Include Editor file, keeping Apache valid.
+
+    The config test runs before anything is restarted; if Apache rejects the
+    change, the file is put back exactly as it was.
+    """
+    original = read_file(PRE_VHOST_INCLUDE)
+    try:
+        os.makedirs(os.path.dirname(PRE_VHOST_INCLUDE), exist_ok=True)
+        with open(PRE_VHOST_INCLUDE, "a") as fh:
+            fh.write(NO_INDEXES_BLOCK)
+    except OSError:
+        return False
+    read_file.cache_clear()
+    if _apache_configtest():
+        return True
+    try:
+        if original is None:
+            os.remove(PRE_VHOST_INCLUDE)
+        else:
+            with open(PRE_VHOST_INCLUDE, "w") as fh:
+                fh.write(original)
+    except OSError:
+        pass
+    read_file.cache_clear()
+    return False
+
+
+def rule_apache_indexing(args):
+    want = args[0].lower()
+    desc = "Apache directory indexing is %s server-wide" % want
+    if want not in ("on", "off"):
+        return Outcome(False, desc, "Use 'apache_indexing off' or "
+                                    "'apache_indexing on'.")
+    if not os.path.isfile(HTTPD_CONF):
+        return Outcome(None, desc, "%s not found (not cPanel Apache)." % HTTPD_CONF)
+    state = apache_global_indexing()  # True on, False off, None nothing set
+    if (state is False) == (want == "off"):
+        return Outcome(True, desc)
+    if state is None:
+        detail = ("No server-wide <Directory> block for / or /home sets "
+                  "Options, so it is not explicitly disabled.")
+    else:
+        detail = ("The server-wide <Directory> config allows indexing, so any "
+                  "folder without an index file lists its contents.")
+    rem = None
+    if want == "off":
+        rem = Remediation(
+            "Add 'Options -Indexes' for /home in the Pre VirtualHost Include "
+            "and restart Apache",
+            func=_disable_global_indexing,
+            backup_files=[PRE_VHOST_INCLUDE],
+            restart="Apache", restart_cmd=APACHE_RESTART,
+            risk="changes every account's sites at once; a site that "
+                 "deliberately serves a browsable folder without its own "
+                 "'Options +Indexes' will stop listing it",
+            manual="WHM > Service Configuration > Apache Configuration > "
+                   "Include Editor > Pre VirtualHost Include (All Versions), "
+                   "add:\n  <Directory \"/home\">\n      Options -Indexes\n"
+                   "  </Directory>")
+    return Outcome(False, desc, detail, rem)
+
+
 def _os_release():
     out = {}
     for line in (read_file("/etc/os-release") or "").splitlines():
@@ -496,6 +573,7 @@ RULES = {
     "timezone": (rule_timezone, 1, lambda a: "TIMEZONE"),
     "package": (rule_package, 1, lambda a: "PKG-" + a[0]),
     "apache_module": (rule_apache_module, 1, lambda a: "APACHE-" + a[0]),
+    "apache_indexing": (rule_apache_indexing, 1, lambda a: "APACHE-INDEXING"),
     "os": (rule_os, 1, lambda a: "OS"),
     "db_engine": (rule_db_engine, 1, lambda a: "DB-ENGINE"),
     "exists": (rule_exists, 1,
